@@ -1,0 +1,31 @@
+name: babymonitarr
+description: "BabyMonitarr - Baby monitoring with real-time audio streaming"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  flutter_webrtc: ^0.12.12
+  signalr_netcore: ^1.4.4
+  logging: ^1.3.0
+  flutter_local_notifications: ^20.0.0
+  permission_handler: ^11.3.1
+  flutter_secure_storage: ^9.2.2
+  provider: ^6.1.2
+  vibration: ^2.0.0
+  validators: ^3.0.0
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

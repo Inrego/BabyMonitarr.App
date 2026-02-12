@@ -21,8 +21,10 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   SettingsProvider? _settingsProvider;
   bool _intentionalDisconnect = false;
   bool _isInBackground = false;
+  bool _disposed = false;
   Timer? _reconnectTimer;
   int _reconnectAttempts = 0;
+  Future<void>? _disconnectInFlight;
 
   StreamSubscription? _signalRStateSub;
   StreamSubscription? _iceCandidateSub;
@@ -94,6 +96,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _handleSoundAlert(SoundAlert alert) {
+    if (_disposed) return;
     if (_settingsProvider?.settings.vibrationEnabled ?? true) {
       _vibration.vibratePattern();
     }
@@ -106,20 +109,21 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> connect(String serverUrl) async {
+    // Cancel existing subscriptions to prevent duplicates on reconnect
+    _cancelSubscriptions();
+
     _intentionalDisconnect = false;
     _reconnectAttempts = 0;
     _updateState(MonitorConnectionState.connecting);
 
     try {
       // Subscribe to SignalR state changes
-      _signalRStateSub?.cancel();
       _signalRStateSub = _signalR.connectionState.listen(_onSignalRState);
 
       // Connect SignalR
       await _signalR.connect(serverUrl);
 
       // Subscribe to ICE candidates from server
-      _iceCandidateSub?.cancel();
       _iceCandidateSub = _signalR.onIceCandidate.listen((candidate) {
         _webRtc.addIceCandidate(
           candidate['candidate'] as String,
@@ -128,29 +132,28 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         );
       });
 
-      // Start WebRTC flow
-      final sdpOffer = await _signalR.startWebRtcStream();
-      final sdpAnswer = await _webRtc.handleOffer(sdpOffer);
+      // Subscribe to WebRTC state BEFORE handshake so no transitions are missed
+      _webRtcStateSub = _webRtc.connectionState.listen(_onWebRtcState);
+      _qualitySub = _webRtc.packetLossStream.listen(_onPacketLoss);
 
-      // Set up local ICE candidate forwarding
-      _webRtc.setupIceCandidateCallback((candidate) {
-        _signalR.addIceCandidate(
-          candidate.candidate!,
-          candidate.sdpMid!,
-          candidate.sdpMLineIndex,
-        );
-      });
+      // Start WebRTC flow, passing ICE callback so it's set before createAnswer
+      final sdpOffer = await _signalR.startWebRtcStream();
+      final sdpAnswer = await _webRtc.handleOffer(
+        sdpOffer,
+        onIceCandidate: (candidate) {
+          _signalR.addIceCandidate(
+            candidate.candidate!,
+            candidate.sdpMid!,
+            candidate.sdpMLineIndex,
+          );
+        },
+      );
 
       // Send answer
       await _signalR.setRemoteDescription('answer', sdpAnswer);
 
-      // Subscribe to WebRTC state
-      _webRtcStateSub?.cancel();
-      _webRtcStateSub = _webRtc.connectionState.listen(_onWebRtcState);
-
-      // Subscribe to quality stats
-      _qualitySub?.cancel();
-      _qualitySub = _webRtc.packetLossStream.listen(_onPacketLoss);
+      // Re-subscribe to audio streams (needed after reconnect)
+      _subscribeToAudioStreams();
 
       // Fetch audio settings
       try {
@@ -169,15 +172,54 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> disconnect() async {
+  Future<void> disconnect() {
+    final inFlight = _disconnectInFlight;
+    if (inFlight != null) return inFlight;
+
+    final operation = _performDisconnect();
+    _disconnectInFlight = operation;
+
+    return operation.whenComplete(() {
+      _disconnectInFlight = null;
+    });
+  }
+
+  Future<void> _performDisconnect() async {
     _intentionalDisconnect = true;
     _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _cancelSubscriptions();
-    await _signalR.stopWebRtcStream();
-    await _webRtc.close();
-    await _signalR.disconnect();
-    _audioProvider?.reset();
-    await _notification.cancelAll();
+
+    try {
+      await _signalR.stopWebRtcStream();
+    } catch (e) {
+      debugPrint('Disconnect: failed to stop WebRTC stream: $e');
+    }
+
+    try {
+      await _webRtc.close();
+    } catch (e) {
+      debugPrint('Disconnect: failed to close WebRTC: $e');
+    }
+
+    try {
+      await _signalR.disconnect();
+    } catch (e) {
+      debugPrint('Disconnect: failed to disconnect SignalR: $e');
+    }
+
+    try {
+      _audioProvider?.reset();
+    } catch (e) {
+      debugPrint('Disconnect: failed to reset audio: $e');
+    }
+
+    try {
+      await _notification.cancelAll();
+    } catch (e) {
+      debugPrint('Disconnect: failed to cancel notifications: $e');
+    }
+
     _updateState(MonitorConnectionState.disconnected);
   }
 
@@ -214,6 +256,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _onPacketLoss(double lossPercent) {
+    if (_disposed) return;
     ConnectionQuality quality;
     if (lossPercent < 1) {
       quality = ConnectionQuality.strong;
@@ -252,12 +295,14 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         _updateState(MonitorConnectionState.reconnecting);
         await _webRtc.close();
         await _signalR.disconnect();
+        _audioProvider?.reset();
         await connect(url);
       }
     });
   }
 
   void _updateState(MonitorConnectionState state, {String? error}) {
+    if (_disposed) return;
     _connectionInfo = _connectionInfo.copyWith(
       state: state,
       errorMessage: error,
@@ -267,26 +312,43 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void _cancelSubscriptions() {
     _signalRStateSub?.cancel();
+    _signalRStateSub = null;
     _iceCandidateSub?.cancel();
+    _iceCandidateSub = null;
     _webRtcStateSub?.cancel();
+    _webRtcStateSub = null;
     _qualitySub?.cancel();
+    _qualitySub = null;
     _audioLevelSub?.cancel();
+    _audioLevelSub = null;
     _soundAlertSub?.cancel();
+    _soundAlertSub = null;
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_disposed) return;
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
         _isInBackground = true;
         if (isConnected) {
-          _notification.showForegroundNotification();
+          _notification.showForegroundNotification().catchError((e) {
+            debugPrint('Failed to show foreground notification: $e');
+          });
         }
         break;
       case AppLifecycleState.resumed:
         _isInBackground = false;
         _notification.cancelForegroundNotification();
+        break;
+      case AppLifecycleState.detached:
+        _isInBackground = false;
+        if (!_intentionalDisconnect) {
+          _notification.cancelAll().catchError((e) {
+            debugPrint('Failed to cancel notifications on detach: $e');
+          });
+        }
         break;
       default:
         break;
@@ -295,12 +357,12 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _reconnectTimer?.cancel();
     _cancelSubscriptions();
     _signalR.dispose();
     _webRtc.dispose();
-    _notification.cancelAll();
     super.dispose();
   }
 }

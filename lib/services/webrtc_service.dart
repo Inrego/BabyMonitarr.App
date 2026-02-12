@@ -10,6 +10,7 @@ class WebRtcService {
   bool _remoteDescriptionSet = false;
   bool _audioEnabled = true;
   Timer? _statsTimer;
+  bool _closing = false;
 
   final _connectionStateController =
       StreamController<RTCPeerConnectionState>.broadcast();
@@ -24,7 +25,10 @@ class WebRtcService {
   WebRtcService({DataChannelHandler? dataChannelHandler})
       : _dataChannelHandler = dataChannelHandler ?? DataChannelHandler();
 
-  Future<String> handleOffer(String sdpOffer) async {
+  Future<String> handleOffer(
+    String sdpOffer, {
+    void Function(RTCIceCandidate candidate)? onIceCandidate,
+  }) async {
     _remoteDescriptionSet = false;
     _pendingCandidates.clear();
 
@@ -60,6 +64,12 @@ class WebRtcService {
       };
     };
 
+    // Set up ICE candidate callback BEFORE setting remote description
+    // so no candidates generated during createAnswer/setLocalDescription are lost
+    if (onIceCandidate != null) {
+      _peerConnection!.onIceCandidate = onIceCandidate;
+    }
+
     await _peerConnection!.setRemoteDescription(
       RTCSessionDescription(sdpOffer, 'offer'),
     );
@@ -79,26 +89,20 @@ class WebRtcService {
 
   Future<void> addIceCandidate(
       String candidate, String sdpMid, int? sdpMLineIndex) async {
-    final iceCandidate = RTCIceCandidate(candidate, sdpMid, sdpMLineIndex);
+    // WebRTC spec requires the 'candidate:' prefix
+    final normalized =
+        candidate.startsWith('candidate:') ? candidate : 'candidate:$candidate';
+    final iceCandidate = RTCIceCandidate(normalized, sdpMid, sdpMLineIndex);
 
-    if (_remoteDescriptionSet && _peerConnection != null) {
-      await _peerConnection!.addCandidate(iceCandidate);
-    } else {
-      _pendingCandidates.add(iceCandidate);
+    try {
+      if (_remoteDescriptionSet && _peerConnection != null) {
+        await _peerConnection!.addCandidate(iceCandidate);
+      } else {
+        _pendingCandidates.add(iceCandidate);
+      }
+    } catch (e) {
+      debugPrint('WebRTC: Failed to add ICE candidate: $e');
     }
-  }
-
-  Stream<RTCIceCandidate> get onLocalIceCandidate {
-    final controller = StreamController<RTCIceCandidate>.broadcast();
-    _peerConnection?.onIceCandidate = (candidate) {
-      controller.add(candidate);
-    };
-    return controller.stream;
-  }
-
-  void setupIceCandidateCallback(
-      void Function(RTCIceCandidate candidate) onCandidate) {
-    _peerConnection?.onIceCandidate = onCandidate;
   }
 
   void toggleAudio() {
@@ -159,19 +163,47 @@ class WebRtcService {
   }
 
   Future<void> close() async {
+    if (_closing) return;
+    _closing = true;
+
     _stopStatsPolling();
     _remoteDescriptionSet = false;
     _pendingCandidates.clear();
+
+    final pc = _peerConnection;
+    _peerConnection = null;
+
+    if (pc == null) {
+      _closing = false;
+      return;
+    }
+
     try {
-      await _peerConnection?.close();
+      pc.onConnectionState = null;
+      pc.onTrack = null;
+      pc.onDataChannel = null;
+      pc.onIceCandidate = null;
+    } catch (e) {
+      debugPrint('Error clearing peer connection callbacks: $e');
+    }
+
+    try {
+      await pc.close();
     } catch (e) {
       debugPrint('Error closing peer connection: $e');
     }
-    _peerConnection = null;
+
+    try {
+      await pc.dispose();
+    } catch (e) {
+      debugPrint('Error disposing peer connection: $e');
+    }
+
+    _closing = false;
   }
 
   void dispose() {
-    close();
+    unawaited(close());
     _connectionStateController.close();
     _qualityController.close();
     _dataChannelHandler.dispose();

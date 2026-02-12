@@ -3,7 +3,9 @@
     "allow": [
       "Bash(dir:*)",
       "Bash(flutter pub get:*)",
-      "Bash(dart analyze:*)"
+      "Bash(dart analyze:*)",
+      "Bash(flutter build:*)",
+      "Bash(flutter analyze:*)"
     ]
   }
 }

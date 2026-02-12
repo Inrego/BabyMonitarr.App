@@ -6,6 +6,7 @@ import '../providers/settings_provider.dart';
 import '../providers/connection_provider.dart';
 import '../widgets/settings_section.dart';
 import '../widgets/theme_card.dart';
+import '../widgets/server_url_dialog.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -115,27 +116,38 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: 24),
 
               // Server info
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Connected to',
-                      style: AppTheme.caption,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      settings.serverUrl ?? 'Not configured',
-                      style: AppTheme.body
-                          .copyWith(color: AppColors.textPrimary),
-                    ),
-                  ],
+              GestureDetector(
+                onTap: () => _showServerUrlDialog(context, settings),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Server URL',
+                              style: AppTheme.caption,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              settings.serverUrl ?? 'Not configured',
+                              style: AppTheme.body
+                                  .copyWith(color: AppColors.textPrimary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.edit_outlined,
+                          size: 18, color: AppColors.textSecondary),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 32),
@@ -144,6 +156,22 @@ class SettingsScreen extends StatelessWidget {
         },
       ),
     );
+  }
+
+  Future<void> _showServerUrlDialog(
+      BuildContext context, SettingsProvider settings) async {
+    final url = await showDialog<String>(
+      context: context,
+      builder: (_) => ServerUrlDialog(currentUrl: settings.serverUrl),
+    );
+    if (url != null && url.isNotEmpty) {
+      await settings.setServerUrl(url);
+      if (context.mounted) {
+        final connection = context.read<ConnectionProvider>();
+        await connection.disconnect();
+        connection.connect(url);
+      }
+    }
   }
 
   Widget _buildVolumeSlider(

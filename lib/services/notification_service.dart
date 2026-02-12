@@ -62,12 +62,14 @@ class NotificationService {
     );
 
     final absLevel = level.abs().toStringAsFixed(1);
-    await _plugin.show(
-      id: 1,
-      title: 'Sound Alert',
-      body: 'Sound level at $absLevel dB exceeds threshold',
-      notificationDetails: details,
-    );
+    try {
+      await _plugin.show(
+        id: 1,
+        title: 'Sound Alert',
+        body: 'Sound level at $absLevel dB exceeds threshold',
+        notificationDetails: details,
+      );
+    } catch (_) {}
   }
 
   Future<void> showForegroundNotification() async {
@@ -87,20 +89,26 @@ class NotificationService {
       windows: windowsDetails,
     );
 
-    await _plugin.show(
-      id: 0,
-      title: 'BabyMonitarr',
-      body: 'Monitoring active',
-      notificationDetails: details,
-    );
+    try {
+      await _plugin.show(
+        id: 0,
+        title: 'BabyMonitarr',
+        body: 'Monitoring active',
+        notificationDetails: details,
+      );
+    } catch (_) {}
   }
 
   Future<void> cancelForegroundNotification() async {
-    await _plugin.cancel(id: 0);
+    try {
+      await _plugin.cancel(id: 0);
+    } catch (_) {}
   }
 
   Future<void> cancelAll() async {
-    await _plugin.cancelAll();
+    try {
+      await _plugin.cancelAll();
+    } catch (_) {}
   }
 
   Future<bool> requestPermission() async {

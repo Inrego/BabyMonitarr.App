@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -12,6 +14,7 @@ import '../widgets/status_pill.dart';
 import '../widgets/action_button.dart';
 import '../widgets/connection_status_bar.dart';
 import 'settings_screen.dart';
+import '../widgets/server_url_dialog.dart';
 
 class MonitoringScreen extends StatefulWidget {
   const MonitoringScreen({super.key});
@@ -21,7 +24,10 @@ class MonitoringScreen extends StatefulWidget {
 }
 
 class _MonitoringScreenState extends State<MonitoringScreen> {
+  static const _lifecycleChannel = MethodChannel('babymonitarr/lifecycle');
+
   bool _listeningIn = true;
+  bool _exiting = false;
 
   @override
   void initState() {
@@ -48,6 +54,32 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     }
   }
 
+  void _onStatusBarTap() {
+    final settings = context.read<SettingsProvider>();
+    final connection = context.read<ConnectionProvider>();
+    final url = settings.serverUrl;
+
+    if (url != null && url.isNotEmpty) {
+      connection.connect(url);
+    } else {
+      _showServerUrlDialog();
+    }
+  }
+
+  Future<void> _showServerUrlDialog() async {
+    final settings = context.read<SettingsProvider>();
+    final connection = context.read<ConnectionProvider>();
+
+    final url = await showDialog<String>(
+      context: context,
+      builder: (_) => ServerUrlDialog(currentUrl: settings.serverUrl),
+    );
+    if (url != null && url.isNotEmpty) {
+      await settings.setServerUrl(url);
+      connection.connect(url);
+    }
+  }
+
   void _toggleListenIn() {
     final connection = context.read<ConnectionProvider>();
     setState(() {
@@ -64,56 +96,86 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     return '$hour:$minute $period';
   }
 
+  Future<void> _cleanupNativeWebRtcReceiver() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+
+    try {
+      await _lifecycleChannel
+          .invokeMethod<void>('cleanupWebRtcOrientationReceiver');
+    } catch (e) {
+      debugPrint('Failed to cleanup native WebRTC receiver: $e');
+    }
+  }
+
+  Future<void> _handleExit() async {
+    if (_exiting) return;
+    _exiting = true;
+
+    final connection = context.read<ConnectionProvider>();
+    await connection.disconnect();
+    await _cleanupNativeWebRtcReceiver();
+    await SystemNavigator.pop();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              _buildHeader(),
-              const SizedBox(height: 16),
-              Consumer<ConnectionProvider>(
-                builder: (context, connection, _) {
-                  return LiveIndicator(isLive: connection.isConnected);
-                },
-              ),
-              const SizedBox(height: 16),
-              _buildCameraPlaceholder(),
-              const SizedBox(height: 24),
-              Consumer<AudioProvider>(
-                builder: (context, audio, _) {
-                  return SoundLevelMeter(
-                    level: audio.displayLevel,
-                    status: audio.soundStatus,
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              Consumer<AudioProvider>(
-                builder: (context, audio, _) {
-                  return StatusPill(alertState: audio.alertState);
-                },
-              ),
-              const SizedBox(height: 20),
-              ActionButton(
-                label: _listeningIn ? 'Listening' : 'Listen In',
-                icon:
-                    _listeningIn ? Icons.volume_up : Icons.volume_off_outlined,
-                isActive: _listeningIn,
-                onPressed: _toggleListenIn,
-              ),
-              const Spacer(),
-              Consumer<ConnectionProvider>(
-                builder: (context, connection, _) {
-                  return ConnectionStatusBar(
-                      info: connection.connectionInfo);
-                },
-              ),
-              const SizedBox(height: 16),
-            ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        await _handleExit();
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                _buildHeader(),
+                const SizedBox(height: 16),
+                Consumer<ConnectionProvider>(
+                  builder: (context, connection, _) {
+                    return LiveIndicator(isLive: connection.isConnected);
+                  },
+                ),
+                const SizedBox(height: 16),
+                _buildCameraPlaceholder(),
+                const SizedBox(height: 24),
+                Consumer<AudioProvider>(
+                  builder: (context, audio, _) {
+                    return SoundLevelMeter(
+                      level: audio.displayLevel,
+                      status: audio.soundStatus,
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+                Consumer<AudioProvider>(
+                  builder: (context, audio, _) {
+                    return StatusPill(alertState: audio.alertState);
+                  },
+                ),
+                const SizedBox(height: 20),
+                ActionButton(
+                  label: _listeningIn ? 'Listening' : 'Listen In',
+                  icon:
+                      _listeningIn ? Icons.volume_up : Icons.volume_off_outlined,
+                  isActive: _listeningIn,
+                  onPressed: _toggleListenIn,
+                ),
+                const Spacer(),
+                Consumer<ConnectionProvider>(
+                  builder: (context, connection, _) {
+                    return ConnectionStatusBar(
+                      info: connection.connectionInfo,
+                      onTap: _onStatusBarTap,
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         ),
       ),

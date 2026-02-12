@@ -11,12 +11,15 @@ class AudioLevel {
     );
   }
 
-  double get displayLevel => level.abs();
+  static const double _dbFloor = -90.0;
+
+  double get displayLevel =>
+      ((level - _dbFloor) / (0 - _dbFloor) * 100).clamp(0, 100);
 
   SoundStatus get status {
-    final absLevel = level.abs();
-    if (absLevel < 40) return SoundStatus.quiet;
-    if (absLevel < 55) return SoundStatus.moderate;
+    final normalized = displayLevel;
+    if (normalized < 40) return SoundStatus.quiet;
+    if (normalized < 55) return SoundStatus.moderate;
     return SoundStatus.active;
   }
 }

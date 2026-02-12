@@ -29,21 +29,25 @@ class BabyMonitarrApp extends StatelessWidget {
           },
         ),
       ],
-      child: Consumer<SettingsProvider>(
-        builder: (context, settings, _) {
-          return MaterialApp(
-            title: 'BabyMonitarr',
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.darkTheme,
-            home: settings.isLoading
-                ? const _SplashScreen()
-                : settings.isOnboardingComplete
-                ? const MonitoringScreen()
-                : const WelcomeScreen(),
-          );
-        },
+      child: MaterialApp(
+        title: 'BabyMonitarr',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.darkTheme,
+        home: const _AppShell(),
       ),
     );
+  }
+}
+
+class _AppShell extends StatelessWidget {
+  const _AppShell();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsProvider>();
+    if (settings.isLoading) return const _SplashScreen();
+    if (!settings.isOnboardingComplete) return const WelcomeScreen();
+    return const MonitoringScreen();
   }
 }
 

@@ -5,11 +5,13 @@ import '../models/audio_state.dart';
 class DataChannelHandler {
   final _audioLevelController = StreamController<AudioLevel>.broadcast();
   final _soundAlertController = StreamController<SoundAlert>.broadcast();
+  bool _disposed = false;
 
   Stream<AudioLevel> get audioLevels => _audioLevelController.stream;
   Stream<SoundAlert> get soundAlerts => _soundAlertController.stream;
 
   void handleMessage(String message) {
+    if (_disposed) return;
     try {
       final json = jsonDecode(message) as Map<String, dynamic>;
       final type = json['type'] as String?;
@@ -28,6 +30,7 @@ class DataChannelHandler {
   }
 
   void dispose() {
+    _disposed = true;
     _audioLevelController.close();
     _soundAlertController.close();
   }

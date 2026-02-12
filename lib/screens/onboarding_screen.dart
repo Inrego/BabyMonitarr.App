@@ -81,15 +81,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         );
       } else {
         setState(() {
-          _status = _ConnectionStatus.connected;
+          _status = _ConnectionStatus.error;
+          _errorText = 'Could not connect. Check the address and try again.';
         });
-        await settings.completeOnboarding();
-
-        if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const MonitoringScreen()),
-          (route) => false,
-        );
       }
     } catch (e) {
       if (!mounted) return;

@@ -9,7 +9,7 @@ import '../providers/audio_provider.dart';
 import '../providers/settings_provider.dart';
 import '../models/connection_state.dart';
 import '../widgets/live_indicator.dart';
-import '../widgets/sound_level_meter.dart';
+import '../widgets/sound_level_graph.dart';
 import '../widgets/status_pill.dart';
 import '../widgets/action_button.dart';
 import '../widgets/connection_status_bar.dart';
@@ -144,9 +144,10 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                 const SizedBox(height: 24),
                 Consumer<AudioProvider>(
                   builder: (context, audio, _) {
-                    return SoundLevelMeter(
-                      level: audio.displayLevel,
-                      status: audio.soundStatus,
+                    return SoundLevelGraph(
+                      history: audio.history,
+                      currentDisplayLevel: audio.displayLevel,
+                      currentStatus: audio.soundStatus,
                     );
                   },
                 ),

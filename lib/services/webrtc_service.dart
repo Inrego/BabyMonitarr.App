@@ -7,6 +7,7 @@ class WebRtcService {
   RTCPeerConnection? _peerConnection;
   final DataChannelHandler _dataChannelHandler;
   final List<RTCIceCandidate> _pendingCandidates = [];
+  final Set<String> _seenRemoteCandidateKeys = <String>{};
   bool _remoteDescriptionSet = false;
   bool _audioEnabled = true;
   Timer? _statsTimer;
@@ -23,7 +24,7 @@ class WebRtcService {
   bool get audioEnabled => _audioEnabled;
 
   WebRtcService({DataChannelHandler? dataChannelHandler})
-      : _dataChannelHandler = dataChannelHandler ?? DataChannelHandler();
+    : _dataChannelHandler = dataChannelHandler ?? DataChannelHandler();
 
   Future<String> handleOffer(
     String sdpOffer, {
@@ -31,6 +32,7 @@ class WebRtcService {
   }) async {
     _remoteDescriptionSet = false;
     _pendingCandidates.clear();
+    _seenRemoteCandidateKeys.clear();
 
     final config = {
       'iceServers': [
@@ -88,10 +90,26 @@ class WebRtcService {
   }
 
   Future<void> addIceCandidate(
-      String candidate, String sdpMid, int? sdpMLineIndex) async {
+    String candidate,
+    String? sdpMid,
+    int? sdpMLineIndex,
+  ) async {
     // WebRTC spec requires the 'candidate:' prefix
-    final normalized =
-        candidate.startsWith('candidate:') ? candidate : 'candidate:$candidate';
+    final normalized = candidate.startsWith('candidate:')
+        ? candidate
+        : 'candidate:$candidate';
+
+    if (isLoopbackIceCandidate(normalized)) {
+      debugPrint('WebRTC: Dropping loopback ICE candidate: $normalized');
+      return;
+    }
+
+    final candidateKey = _buildCandidateKey(normalized, sdpMid, sdpMLineIndex);
+    if (!_seenRemoteCandidateKeys.add(candidateKey)) {
+      debugPrint('WebRTC: Dropping duplicate ICE candidate');
+      return;
+    }
+
     final iceCandidate = RTCIceCandidate(normalized, sdpMid, sdpMLineIndex);
 
     try {
@@ -120,7 +138,8 @@ class WebRtcService {
     try {
       final receivers = await _peerConnection!.getReceivers();
       for (final receiver in receivers.where(
-          (r) => r.track != null && r.track!.kind == 'audio')) {
+        (r) => r.track != null && r.track!.kind == 'audio',
+      )) {
         receiver.track!.enabled = enabled;
       }
     } catch (e) {
@@ -169,6 +188,7 @@ class WebRtcService {
     _stopStatsPolling();
     _remoteDescriptionSet = false;
     _pendingCandidates.clear();
+    _seenRemoteCandidateKeys.clear();
 
     final pc = _peerConnection;
     _peerConnection = null;
@@ -200,6 +220,31 @@ class WebRtcService {
     }
 
     _closing = false;
+  }
+
+  static bool isLoopbackIceCandidate(String candidate) {
+    final tokens = candidate.split(RegExp(r'\s+'));
+    if (tokens.length >= 5) {
+      final address = tokens[4].toLowerCase();
+      if (address == '127.0.0.1' ||
+          address == '::1' ||
+          address == 'localhost') {
+        return true;
+      }
+    }
+
+    final normalized = candidate.toLowerCase();
+    return normalized.contains(' 127.0.0.1 ') ||
+        normalized.contains(' ::1 ') ||
+        normalized.contains(' localhost ');
+  }
+
+  String _buildCandidateKey(
+    String candidate,
+    String? sdpMid,
+    int? sdpMLineIndex,
+  ) {
+    return '$candidate|${sdpMid ?? ''}|${sdpMLineIndex ?? -1}';
   }
 
   void dispose() {

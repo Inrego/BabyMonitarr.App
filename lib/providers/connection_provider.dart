@@ -23,7 +23,10 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _isInBackground = false;
   bool _disposed = false;
   Timer? _reconnectTimer;
+  Timer? _iceTimer;
   int _reconnectAttempts = 0;
+  int _webRtcRetryAttempts = 0;
+  bool _webRtcRetryInFlight = false;
   Future<void>? _disconnectInFlight;
 
   StreamSubscription? _signalRStateSub;
@@ -32,6 +35,10 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   StreamSubscription? _qualitySub;
   StreamSubscription? _audioLevelSub;
   StreamSubscription? _soundAlertSub;
+
+  static const _iceTimeout = Duration(seconds: 15);
+  static const _maxWebRtcRetries = 3;
+  static const _webRtcRetryDelay = Duration(milliseconds: 500);
 
   static const _backoffDurations = [
     Duration(seconds: 1),
@@ -112,8 +119,12 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     // Cancel existing subscriptions to prevent duplicates on reconnect
     _cancelSubscriptions();
 
+    // Close any leftover peer connection from a previous attempt
+    await _webRtc.close();
+
     _intentionalDisconnect = false;
     _reconnectAttempts = 0;
+    _webRtcRetryAttempts = 0;
     _updateState(MonitorConnectionState.connecting);
 
     try {
@@ -163,7 +174,26 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         debugPrint('Failed to fetch audio settings: $e');
       }
 
-      _updateState(MonitorConnectionState.connected);
+      // State stays 'connecting' until _onWebRtcState fires 'connected'
+      // after ICE negotiation actually succeeds.
+
+      // ICE negotiation timeout — if WebRTC doesn't reach 'connected'
+      // within this window, treat it as a failed attempt.
+      _iceTimer?.cancel();
+      _iceTimer = Timer(_iceTimeout, () {
+        if (_connectionInfo.state == MonitorConnectionState.connecting ||
+            _connectionInfo.state == MonitorConnectionState.reconnecting) {
+          debugPrint('ICE negotiation timed out after $_iceTimeout');
+          _updateState(MonitorConnectionState.failed,
+              error: 'ICE negotiation timed out');
+          if (_signalR.isConnected &&
+              _webRtcRetryAttempts < _maxWebRtcRetries) {
+            _retryWebRtcOnly();
+          } else {
+            _scheduleReconnect();
+          }
+        }
+      });
     } catch (e) {
       debugPrint('Connection error: $e');
       _updateState(MonitorConnectionState.failed,
@@ -188,6 +218,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     _intentionalDisconnect = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _webRtcRetryInFlight = false;
     _cancelSubscriptions();
 
     try {
@@ -240,14 +271,24 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _onWebRtcState(RTCPeerConnectionState state) {
     switch (state) {
       case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+        _iceTimer?.cancel();
+        _iceTimer = null;
         _updateState(MonitorConnectionState.connected);
         _reconnectAttempts = 0;
+        _webRtcRetryAttempts = 0;
         break;
       case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
       case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+        _iceTimer?.cancel();
+        _iceTimer = null;
         if (!_intentionalDisconnect) {
-          _updateState(MonitorConnectionState.reconnecting);
-          _scheduleReconnect();
+          if (_signalR.isConnected &&
+              _webRtcRetryAttempts < _maxWebRtcRetries) {
+            _retryWebRtcOnly();
+          } else {
+            _updateState(MonitorConnectionState.reconnecting);
+            _scheduleReconnect();
+          }
         }
         break;
       default:
@@ -278,6 +319,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _scheduleReconnect() {
     if (_intentionalDisconnect) return;
     _reconnectTimer?.cancel();
+    _webRtcRetryAttempts = 0;
 
     final backoffIndex =
         _reconnectAttempts.clamp(0, _backoffDurations.length - 1);
@@ -293,6 +335,11 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       final url = _settingsProvider?.serverUrl;
       if (url != null && url.isNotEmpty) {
         _updateState(MonitorConnectionState.reconnecting);
+        try {
+          await _signalR.stopWebRtcStream();
+        } catch (e) {
+          debugPrint('Reconnect: failed to stop server stream: $e');
+        }
         await _webRtc.close();
         await _signalR.disconnect();
         _audioProvider?.reset();
@@ -301,16 +348,124 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _retryWebRtcOnly() async {
+    if (_webRtcRetryInFlight || _intentionalDisconnect || _disposed) return;
+    _webRtcRetryInFlight = true;
+
+    try {
+      _webRtcRetryAttempts++;
+      debugPrint(
+          'WebRTC-only retry attempt $_webRtcRetryAttempts/$_maxWebRtcRetries');
+
+      _updateState(MonitorConnectionState.reconnecting);
+
+      // Cancel ICE timer and WebRTC-specific subscriptions only.
+      // Keep _signalRStateSub and _iceCandidateSub alive.
+      _iceTimer?.cancel();
+      _iceTimer = null;
+      _webRtcStateSub?.cancel();
+      _webRtcStateSub = null;
+      _qualitySub?.cancel();
+      _qualitySub = null;
+
+      // Tell server to stop current stream
+      try {
+        await _signalR.stopWebRtcStream();
+      } catch (e) {
+        debugPrint('WebRTC retry: failed to stop server stream: $e');
+      }
+
+      // Close local peer connection
+      await _webRtc.close();
+
+      // Brief delay for server-side cleanup
+      await Future.delayed(_webRtcRetryDelay);
+
+      // Bail out if state changed during the delay
+      if (_intentionalDisconnect || _disposed) return;
+
+      // If SignalR dropped, fall back to full reconnect
+      if (!_signalR.isConnected) {
+        debugPrint(
+            'WebRTC retry: SignalR disconnected, falling back to full reconnect');
+        _scheduleReconnect();
+        return;
+      }
+
+      // Re-subscribe to WebRTC state before handshake
+      _webRtcStateSub = _webRtc.connectionState.listen(_onWebRtcState);
+      _qualitySub = _webRtc.packetLossStream.listen(_onPacketLoss);
+
+      // Request new SDP offer via existing SignalR connection
+      final sdpOffer = await _signalR.startWebRtcStream();
+      final sdpAnswer = await _webRtc.handleOffer(
+        sdpOffer,
+        onIceCandidate: (candidate) {
+          _signalR.addIceCandidate(
+            candidate.candidate!,
+            candidate.sdpMid!,
+            candidate.sdpMLineIndex,
+          );
+        },
+      );
+
+      // Send answer back to server
+      await _signalR.setRemoteDescription('answer', sdpAnswer);
+
+      // Re-subscribe to audio streams
+      _subscribeToAudioStreams();
+
+      // Start ICE timeout
+      _iceTimer?.cancel();
+      _iceTimer = Timer(_iceTimeout, () {
+        if (_connectionInfo.state == MonitorConnectionState.connecting ||
+            _connectionInfo.state == MonitorConnectionState.reconnecting) {
+          debugPrint('ICE negotiation timed out during WebRTC retry');
+          // Will trigger _onWebRtcState which routes to retry or full reconnect
+        }
+      });
+    } catch (e) {
+      debugPrint('WebRTC retry error: $e');
+      if (!_intentionalDisconnect && !_disposed) {
+        if (_webRtcRetryAttempts < _maxWebRtcRetries &&
+            _signalR.isConnected) {
+          _reconnectTimer?.cancel();
+          _reconnectTimer = Timer(_webRtcRetryDelay, () {
+            _webRtcRetryInFlight = false;
+            _retryWebRtcOnly();
+          });
+          return;
+        } else {
+          _scheduleReconnect();
+        }
+      }
+    } finally {
+      _webRtcRetryInFlight = false;
+    }
+  }
+
   void _updateState(MonitorConnectionState state, {String? error}) {
     if (_disposed) return;
-    _connectionInfo = _connectionInfo.copyWith(
-      state: state,
-      errorMessage: error,
-    );
+    if (state == MonitorConnectionState.connecting ||
+        state == MonitorConnectionState.reconnecting) {
+      _connectionInfo = _connectionInfo.copyWith(
+        state: state,
+        quality: ConnectionQuality.unknown,
+        packetLossPercent: 0,
+        errorMessage: error,
+      );
+    } else {
+      _connectionInfo = _connectionInfo.copyWith(
+        state: state,
+        errorMessage: error,
+      );
+    }
     notifyListeners();
   }
 
   void _cancelSubscriptions() {
+    _iceTimer?.cancel();
+    _iceTimer = null;
     _signalRStateSub?.cancel();
     _signalRStateSub = null;
     _iceCandidateSub?.cancel();
@@ -358,8 +513,10 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     _disposed = true;
+    _webRtcRetryInFlight = false;
     WidgetsBinding.instance.removeObserver(this);
     _reconnectTimer?.cancel();
+    _iceTimer?.cancel();
     _cancelSubscriptions();
     _signalR.dispose();
     _webRtc.dispose();

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../services/signalr_service.dart';
 
 class ServerUrlDialog extends StatefulWidget {
   final String? currentUrl;
@@ -42,10 +43,7 @@ class _ServerUrlDialogState extends State<ServerUrlDialog> {
       setState(() => _error = error);
       return;
     }
-    var url = _controller.text.trim();
-    if (!url.endsWith('/audioHub')) {
-      url = url.endsWith('/') ? '${url}audioHub' : '$url/audioHub';
-    }
+    final url = SignalRService.normalizeServerUrl(_controller.text);
     Navigator.of(context).pop(url);
   }
 
@@ -74,7 +72,7 @@ class _ServerUrlDialogState extends State<ServerUrlDialog> {
           ),
           const SizedBox(height: 8),
           Text(
-            '/audioHub will be appended automatically',
+            'Enter the server base URL (e.g. http://192.168.1.100:5148)',
             style: AppTheme.caption,
           ),
         ],
@@ -82,13 +80,17 @@ class _ServerUrlDialogState extends State<ServerUrlDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text('Cancel',
-              style: AppTheme.body.copyWith(color: AppColors.textSecondary)),
+          child: Text(
+            'Cancel',
+            style: AppTheme.body.copyWith(color: AppColors.textSecondary),
+          ),
         ),
         TextButton(
           onPressed: _submit,
-          child: Text('Connect',
-              style: AppTheme.body.copyWith(color: AppColors.primaryWarm)),
+          child: Text(
+            'Connect',
+            style: AppTheme.body.copyWith(color: AppColors.primaryWarm),
+          ),
         ),
       ],
     );

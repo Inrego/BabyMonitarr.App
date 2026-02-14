@@ -21,8 +21,10 @@ class MonitorAddressField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Monitor Address',
-            style: AppTheme.caption.copyWith(color: AppColors.primaryWarm)),
+        Text(
+          'Monitor Address',
+          style: AppTheme.caption.copyWith(color: AppColors.primaryWarm),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
@@ -33,33 +35,44 @@ class MonitorAddressField extends StatelessWidget {
           autocorrect: false,
           decoration: InputDecoration(
             hintText: 'e.g., http://babymonitor.local',
-            hintStyle: AppTheme.body
-                .copyWith(color: AppColors.textSecondary.withValues(alpha: 0.5)),
+            hintStyle: AppTheme.body.copyWith(
+              color: AppColors.textSecondary.withValues(alpha: 0.5),
+            ),
             filled: true,
             fillColor: AppColors.surface,
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: AppColors.surfaceLight, width: 1.5),
+              borderSide: const BorderSide(
+                color: AppColors.surfaceLight,
+                width: 1.5,
+              ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: AppColors.primaryWarm, width: 1.5),
+              borderSide: const BorderSide(
+                color: AppColors.primaryWarm,
+                width: 1.5,
+              ),
             ),
             errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: AppColors.liveRed, width: 1.5),
+              borderSide: const BorderSide(
+                color: AppColors.liveRed,
+                width: 1.5,
+              ),
             ),
             focusedErrorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: AppColors.liveRed, width: 1.5),
+              borderSide: const BorderSide(
+                color: AppColors.liveRed,
+                width: 1.5,
+              ),
             ),
             errorText: errorText,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
             prefixIcon: const Icon(Icons.link, color: AppColors.primaryWarm),
           ),
         ),

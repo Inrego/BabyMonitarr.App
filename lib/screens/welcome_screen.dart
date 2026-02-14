@@ -19,8 +19,10 @@ class WelcomeScreen extends StatelessWidget {
               const SizedBox(height: 40),
               Text(
                 'BabyMonitarr',
-                style: AppTheme.subtitle
-                    .copyWith(color: AppColors.primaryWarm, fontSize: 20),
+                style: AppTheme.subtitle.copyWith(
+                  color: AppColors.primaryWarm,
+                  fontSize: 20,
+                ),
               ),
               const Spacer(flex: 1),
               const BabyMascot(size: 200),
@@ -44,7 +46,9 @@ class WelcomeScreen extends StatelessWidget {
                 alignment: WrapAlignment.center,
                 children: [
                   FeaturePill(
-                      label: 'Gentle Alerts', icon: Icons.notifications_none),
+                    label: 'Gentle Alerts',
+                    icon: Icons.notifications_none,
+                  ),
                   FeaturePill(label: 'Soft Visuals', icon: Icons.visibility),
                   FeaturePill(label: 'Always Secure', icon: Icons.lock_outline),
                 ],
@@ -57,7 +61,8 @@ class WelcomeScreen extends StatelessWidget {
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                          builder: (_) => const OnboardingScreen()),
+                        builder: (_) => const OnboardingScreen(),
+                      ),
                     );
                   },
                   style: ElevatedButton.styleFrom(
@@ -83,10 +88,12 @@ class WelcomeScreen extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text('From our family to yours ',
-                      style: AppTheme.caption),
-                  Icon(Icons.favorite,
-                      size: 14, color: AppColors.secondaryWarm),
+                  Text('From our family to yours ', style: AppTheme.caption),
+                  Icon(
+                    Icons.favorite,
+                    size: 14,
+                    color: AppColors.secondaryWarm,
+                  ),
                 ],
               ),
               const SizedBox(height: 24),

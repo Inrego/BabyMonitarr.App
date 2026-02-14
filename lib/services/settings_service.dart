@@ -12,7 +12,7 @@ class SettingsService {
   final FlutterSecureStorage _storage;
 
   SettingsService({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   Future<AppSettings> load() async {
     final serverUrl = await _storage.read(key: _keyServerUrl);
@@ -36,15 +36,22 @@ class SettingsService {
     await Future.wait([
       _storage.write(key: _keyServerUrl, value: settings.serverUrl ?? ''),
       _storage.write(
-          key: _keyOnboardingComplete,
-          value: settings.onboardingComplete.toString()),
+        key: _keyOnboardingComplete,
+        value: settings.onboardingComplete.toString(),
+      ),
       _storage.write(
-          key: _keyDarkMode, value: settings.darkModeEnabled.toString()),
+        key: _keyDarkMode,
+        value: settings.darkModeEnabled.toString(),
+      ),
       _storage.write(key: _keyTheme, value: settings.selectedTheme),
       _storage.write(
-          key: _keyVibration, value: settings.vibrationEnabled.toString()),
+        key: _keyVibration,
+        value: settings.vibrationEnabled.toString(),
+      ),
       _storage.write(
-          key: _keyAlertVolume, value: settings.alertVolume.toString()),
+        key: _keyAlertVolume,
+        value: settings.alertVolume.toString(),
+      ),
     ]);
   }
 

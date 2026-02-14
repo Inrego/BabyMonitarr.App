@@ -65,19 +65,13 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   ThemeCard(
                     label: 'Cool',
-                    colors: const [
-                      AppColors.tealAccent,
-                      Color(0xFF7BA7D7),
-                    ],
+                    colors: const [AppColors.tealAccent, Color(0xFF7BA7D7)],
                     isSelected: settings.settings.selectedTheme == 'cool',
                     onTap: () => settings.setTheme('cool'),
                   ),
                   ThemeCard(
                     label: 'Auto',
-                    colors: const [
-                      AppColors.primaryWarm,
-                      AppColors.tealAccent,
-                    ],
+                    colors: const [AppColors.primaryWarm, AppColors.tealAccent],
                     isSelected: settings.settings.selectedTheme == 'auto',
                     onTap: () => settings.setTheme('auto'),
                   ),
@@ -91,7 +85,11 @@ class SettingsScreen extends StatelessWidget {
                 children: [
                   _buildVolumeSlider(context, settings),
                   const Divider(
-                      height: 1, color: AppColors.surfaceLight, indent: 16, endIndent: 16),
+                    height: 1,
+                    color: AppColors.surfaceLight,
+                    indent: 16,
+                    endIndent: 16,
+                  ),
                   SettingsToggleRow(
                     label: 'Gentle Alerts',
                     description: 'Uses soft sounds and vibrations',
@@ -99,14 +97,19 @@ class SettingsScreen extends StatelessWidget {
                     onChanged: (v) => settings.setVibrationEnabled(v),
                   ),
                   const Divider(
-                      height: 1, color: AppColors.surfaceLight, indent: 16, endIndent: 16),
+                    height: 1,
+                    color: AppColors.surfaceLight,
+                    indent: 16,
+                    endIndent: 16,
+                  ),
                   SettingsToggleRow(
                     label: 'Smart Filtering',
                     description: 'Ignore background noise',
                     value: settings.audioSettings.filterEnabled,
                     onChanged: (v) {
-                      final updated =
-                          settings.getUpdatedAudioSettings(filterEnabled: v);
+                      final updated = settings.getUpdatedAudioSettings(
+                        filterEnabled: v,
+                      );
                       settings.updateAudioSettings(updated);
                       context.read<ConnectionProvider>().syncAudioSettings();
                     },
@@ -131,21 +134,22 @@ class SettingsScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'Server URL',
-                              style: AppTheme.caption,
-                            ),
+                            Text('Server URL', style: AppTheme.caption),
                             const SizedBox(height: 4),
                             Text(
                               settings.serverUrl ?? 'Not configured',
-                              style: AppTheme.body
-                                  .copyWith(color: AppColors.textPrimary),
+                              style: AppTheme.body.copyWith(
+                                color: AppColors.textPrimary,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                      const Icon(Icons.edit_outlined,
-                          size: 18, color: AppColors.textSecondary),
+                      const Icon(
+                        Icons.edit_outlined,
+                        size: 18,
+                        color: AppColors.textSecondary,
+                      ),
                     ],
                   ),
                 ),
@@ -159,7 +163,9 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _showServerUrlDialog(
-      BuildContext context, SettingsProvider settings) async {
+    BuildContext context,
+    SettingsProvider settings,
+  ) async {
     final url = await showDialog<String>(
       context: context,
       builder: (_) => ServerUrlDialog(currentUrl: settings.serverUrl),
@@ -174,11 +180,9 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
-  Widget _buildVolumeSlider(
-      BuildContext context, SettingsProvider settings) {
+  Widget _buildVolumeSlider(BuildContext context, SettingsProvider settings) {
     // Map alert volume (0.0 - 1.0) to a dB display (-30 to 0)
-    final volumeDb =
-        (settings.settings.alertVolume * 30 - 30).roundToDouble();
+    final volumeDb = (settings.settings.alertVolume * 30 - 30).roundToDouble();
     final volumeLabel = _volumeLabel(settings.settings.alertVolume);
 
     return Padding(
@@ -189,13 +193,13 @@ class SettingsScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Alert Volume',
-                  style:
-                      AppTheme.body.copyWith(color: AppColors.textPrimary)),
+              Text(
+                'Alert Volume',
+                style: AppTheme.body.copyWith(color: AppColors.textPrimary),
+              ),
               Text(
                 '$volumeLabel (${volumeDb.toStringAsFixed(0)} dB)',
-                style: AppTheme.caption
-                    .copyWith(color: AppColors.primaryWarm),
+                style: AppTheme.caption.copyWith(color: AppColors.primaryWarm),
               ),
             ],
           ),
@@ -203,8 +207,7 @@ class SettingsScreen extends StatelessWidget {
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               trackHeight: 4,
-              thumbShape:
-                  const RoundSliderThumbShape(enabledThumbRadius: 8),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),
             child: Slider(
               value: settings.settings.alertVolume,
@@ -212,7 +215,8 @@ class SettingsScreen extends StatelessWidget {
               onChangeEnd: (v) {
                 final dbValue = v * 30 - 30;
                 final updated = settings.getUpdatedAudioSettings(
-                    volumeAdjustmentDb: dbValue);
+                  volumeAdjustmentDb: dbValue,
+                );
                 settings.updateAudioSettings(updated);
                 context.read<ConnectionProvider>().syncAudioSettings();
               },

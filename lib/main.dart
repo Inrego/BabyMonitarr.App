@@ -3,9 +3,10 @@ import 'package:provider/provider.dart';
 import 'theme/app_theme.dart';
 import 'providers/connection_provider.dart';
 import 'providers/audio_provider.dart';
+import 'providers/room_provider.dart';
 import 'providers/settings_provider.dart';
 import 'screens/welcome_screen.dart';
-import 'screens/monitoring_screen.dart';
+import 'screens/dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +29,14 @@ class BabyMonitarrApp extends StatelessWidget {
             return connection;
           },
         ),
+        ChangeNotifierProxyProvider<ConnectionProvider, RoomProvider>(
+          create: (_) => RoomProvider(),
+          update: (_, connection, rooms) {
+            final provider = rooms ?? RoomProvider();
+            provider.bindConnection(connection);
+            return provider;
+          },
+        ),
       ],
       child: MaterialApp(
         title: 'BabyMonitarr',
@@ -47,7 +56,7 @@ class _AppShell extends StatelessWidget {
     final settings = context.watch<SettingsProvider>();
     if (settings.isLoading) return const _SplashScreen();
     if (!settings.isOnboardingComplete) return const WelcomeScreen();
-    return const MonitoringScreen();
+    return const DashboardScreen();
   }
 }
 

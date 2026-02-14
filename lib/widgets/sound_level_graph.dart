@@ -135,10 +135,7 @@ class SoundLevelGraph extends StatelessWidget {
           children: [
             Text(
               currentDisplayLevel.toStringAsFixed(0),
-              style: AppTheme.display.copyWith(
-                fontSize: 32,
-                color: _lineColor,
-              ),
+              style: AppTheme.display.copyWith(fontSize: 32, color: _lineColor),
             ),
             const SizedBox(width: 4),
             Text('dB', style: AppTheme.caption),
@@ -167,7 +164,11 @@ class SoundLevelGraph extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.graphic_eq, size: 32, color: AppColors.textSecondary),
+          const Icon(
+            Icons.graphic_eq,
+            size: 32,
+            color: AppColors.textSecondary,
+          ),
           const SizedBox(height: 8),
           Text(
             'Waiting for audio data...',
@@ -205,8 +206,12 @@ class SoundLevelGraph extends StatelessWidget {
           ),
         ),
         titlesData: FlTitlesData(
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,

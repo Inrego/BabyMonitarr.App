@@ -10,7 +10,7 @@ class SettingsProvider extends ChangeNotifier {
   bool _isLoading = true;
 
   SettingsProvider({SettingsService? service})
-      : _service = service ?? SettingsService() {
+    : _service = service ?? SettingsService() {
     _loadSettings();
   }
 

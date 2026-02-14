@@ -26,10 +26,10 @@ class ActionButton extends StatelessWidget {
         icon: Icon(icon, size: 20),
         label: Text(label),
         style: ElevatedButton.styleFrom(
-          backgroundColor:
-              isActive ? AppColors.primaryWarm : AppColors.surface,
-          foregroundColor:
-              isActive ? AppColors.background : AppColors.textPrimary,
+          backgroundColor: isActive ? AppColors.primaryWarm : AppColors.surface,
+          foregroundColor: isActive
+              ? AppColors.background
+              : AppColors.textPrimary,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(26),
             side: isActive

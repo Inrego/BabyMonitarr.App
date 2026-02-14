@@ -6,13 +6,7 @@ enum MonitorConnectionState {
   failed,
 }
 
-enum ConnectionQuality {
-  strong,
-  good,
-  fair,
-  weak,
-  unknown,
-}
+enum ConnectionQuality { strong, good, fair, weak, unknown }
 
 class ConnectionInfo {
   final MonitorConnectionState state;

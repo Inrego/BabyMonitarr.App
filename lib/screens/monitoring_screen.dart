@@ -48,8 +48,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     if (url != null &&
         url.isNotEmpty &&
         !connection.isConnected &&
-        connection.connectionInfo.state !=
-            MonitorConnectionState.connecting) {
+        connection.connectionInfo.state != MonitorConnectionState.connecting) {
       connection.connect(url);
     }
   }
@@ -90,7 +89,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
   String _formatTime() {
     final now = DateTime.now();
-    final hour = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
+    final hour = now.hour > 12
+        ? now.hour - 12
+        : (now.hour == 0 ? 12 : now.hour);
     final minute = now.minute.toString().padLeft(2, '0');
     final period = now.hour >= 12 ? 'PM' : 'AM';
     return '$hour:$minute $period';
@@ -100,8 +101,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
 
     try {
-      await _lifecycleChannel
-          .invokeMethod<void>('cleanupWebRtcOrientationReceiver');
+      await _lifecycleChannel.invokeMethod<void>(
+        'cleanupWebRtcOrientationReceiver',
+      );
     } catch (e) {
       debugPrint('Failed to cleanup native WebRTC receiver: $e');
     }
@@ -160,8 +162,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                 const SizedBox(height: 20),
                 ActionButton(
                   label: _listeningIn ? 'Listening' : 'Listen In',
-                  icon:
-                      _listeningIn ? Icons.volume_up : Icons.volume_off_outlined,
+                  icon: _listeningIn
+                      ? Icons.volume_up
+                      : Icons.volume_off_outlined,
                   isActive: _listeningIn,
                   onPressed: _toggleListenIn,
                 ),
@@ -190,12 +193,14 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         Text('Monitoring', style: AppTheme.subtitle),
         Text(_formatTime(), style: AppTheme.caption),
         IconButton(
-          icon: const Icon(Icons.settings_outlined,
-              color: AppColors.textSecondary),
+          icon: const Icon(
+            Icons.settings_outlined,
+            color: AppColors.textSecondary,
+          ),
           onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            );
+            Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
           },
         ),
       ],
@@ -213,12 +218,16 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.videocam_outlined,
-              size: 32, color: AppColors.textSecondary),
+          const Icon(
+            Icons.videocam_outlined,
+            size: 32,
+            color: AppColors.textSecondary,
+          ),
           const SizedBox(height: 8),
-          Text('Video coming soon',
-              style: AppTheme.caption
-                  .copyWith(color: AppColors.textSecondary)),
+          Text(
+            'Video coming soon',
+            style: AppTheme.caption.copyWith(color: AppColors.textSecondary),
+          ),
         ],
       ),
     );

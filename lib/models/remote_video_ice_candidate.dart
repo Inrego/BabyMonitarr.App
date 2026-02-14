@@ -1,10 +1,10 @@
-class RemoteIceCandidate {
+class RemoteVideoIceCandidate {
   final int roomId;
   final String candidate;
   final String? sdpMid;
   final int? sdpMLineIndex;
 
-  const RemoteIceCandidate({
+  const RemoteVideoIceCandidate({
     required this.roomId,
     required this.candidate,
     required this.sdpMid,

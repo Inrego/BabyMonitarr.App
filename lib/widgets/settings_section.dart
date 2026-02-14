@@ -34,9 +34,7 @@ class SettingsSection extends StatelessWidget {
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(16),
           ),
-          child: Column(
-            children: children,
-          ),
+          child: Column(children: children),
         ),
       ],
     );
@@ -67,7 +65,10 @@ class SettingsToggleRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: AppTheme.body.copyWith(color: AppColors.textPrimary)),
+                Text(
+                  label,
+                  style: AppTheme.body.copyWith(color: AppColors.textPrimary),
+                ),
                 if (description != null) ...[
                   const SizedBox(height: 2),
                   Text(description!, style: AppTheme.caption),

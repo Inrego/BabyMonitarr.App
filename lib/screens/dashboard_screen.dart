@@ -1,0 +1,779 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:provider/provider.dart';
+import 'package:signalr_netcore/signalr_client.dart';
+import '../models/audio_state.dart';
+import '../models/remote_video_ice_candidate.dart';
+import '../models/room.dart';
+import '../providers/audio_provider.dart';
+import '../providers/connection_provider.dart';
+import '../providers/room_provider.dart';
+import '../providers/settings_provider.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
+import 'monitor_settings_screen.dart';
+
+class DashboardScreen extends StatefulWidget {
+  const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  final Map<int, _VideoRoomSession> _videoSessions = <int, _VideoRoomSession>{};
+  StreamSubscription? _videoIceSub;
+  StreamSubscription? _signalRStateSub;
+  RoomProvider? _boundRoomProvider;
+  bool _initialized = false;
+  bool _syncInProgress = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _initializeData();
+    });
+  }
+
+  Future<void> _initializeData() async {
+    if (!mounted) return;
+    final settings = context.read<SettingsProvider>();
+    final connection = context.read<ConnectionProvider>();
+    final audio = context.read<AudioProvider>();
+    final rooms = context.read<RoomProvider>();
+
+    connection.setAudioProvider(audio);
+    rooms.bindConnection(connection);
+    _bindRoomProvider(rooms);
+
+    final url = settings.serverUrl;
+    if (url != null && url.isNotEmpty && !connection.isConnected) {
+      try {
+        await connection.connect(url);
+      } catch (_) {
+        // Connection errors are surfaced in UI state via provider.
+      }
+    }
+
+    if (connection.isConnected) {
+      await rooms.refreshAll();
+    }
+
+    _videoIceSub?.cancel();
+    _videoIceSub = connection.signalR.onVideoIceCandidate.listen(
+      _onVideoIceCandidate,
+    );
+
+    _signalRStateSub?.cancel();
+    _signalRStateSub = connection.signalR.connectionState.listen((state) {
+      if (!mounted) return;
+      if (state == HubConnectionState.Connected) {
+        unawaited(context.read<RoomProvider>().refreshAll());
+      } else if (state == HubConnectionState.Disconnected) {
+        _disposeAllVideoSessions(notifyServer: false);
+      }
+      unawaited(_syncVideoSessions());
+    });
+
+    _initialized = true;
+    if (mounted) {
+      setState(() {});
+    }
+    await _syncVideoSessions();
+  }
+
+  void _bindRoomProvider(RoomProvider roomProvider) {
+    if (identical(_boundRoomProvider, roomProvider)) return;
+    _boundRoomProvider?.removeListener(_onRoomProviderChanged);
+    _boundRoomProvider = roomProvider;
+    _boundRoomProvider?.addListener(_onRoomProviderChanged);
+  }
+
+  void _onRoomProviderChanged() {
+    unawaited(_syncVideoSessions());
+  }
+
+  Future<void> _syncVideoSessions() async {
+    if (!_initialized || _syncInProgress || !mounted) return;
+    final connection = context.read<ConnectionProvider>();
+    final roomProvider = context.read<RoomProvider>();
+    final desiredRoomIds = roomProvider.rooms
+        .where(_canStartVideoForRoom)
+        .map((room) => room.id)
+        .toSet();
+
+    _syncInProgress = true;
+    try {
+      final currentIds = _videoSessions.keys.toList(growable: false);
+      for (final roomId in currentIds) {
+        if (!desiredRoomIds.contains(roomId)) {
+          await _disposeVideoSession(
+            roomId,
+            notifyServer: connection.isConnected,
+          );
+        }
+      }
+
+      if (!connection.isConnected) return;
+
+      for (final roomId in desiredRoomIds) {
+        if (!_videoSessions.containsKey(roomId)) {
+          await _startVideoSession(roomId);
+        }
+      }
+    } finally {
+      _syncInProgress = false;
+    }
+  }
+
+  bool _canStartVideoForRoom(Room room) {
+    if (!room.enableVideoStream) return false;
+    if (room.streamSourceType == 'google_nest') {
+      return room.nestDeviceId?.trim().isNotEmpty ?? false;
+    }
+    return room.cameraStreamUrl?.trim().isNotEmpty ?? false;
+  }
+
+  bool _canStartAudioForRoom(Room room) {
+    if (!room.enableAudioStream) return false;
+    if (room.streamSourceType == 'google_nest') {
+      return room.nestDeviceId?.trim().isNotEmpty ?? false;
+    }
+    return room.cameraStreamUrl?.trim().isNotEmpty ?? false;
+  }
+
+  Future<void> _startVideoSession(int roomId) async {
+    final connection = context.read<ConnectionProvider>();
+    if (!connection.isConnected || _videoSessions.containsKey(roomId)) return;
+
+    final renderer = RTCVideoRenderer();
+    await renderer.initialize();
+    final session = _VideoRoomSession(renderer: renderer);
+    _videoSessions[roomId] = session;
+    if (mounted) setState(() {});
+
+    try {
+      final offerSdp = await connection.signalR.startVideoStream(roomId);
+      final pc = await createPeerConnection({
+        'iceServers': [
+          {'urls': 'stun:stun.l.google.com:19302'},
+        ],
+      });
+      session.peerConnection = pc;
+
+      pc.onIceCandidate = (candidate) {
+        final raw = candidate.candidate;
+        if (raw == null || raw.trim().isEmpty) return;
+        unawaited(
+          connection.signalR
+              .addVideoIceCandidate(
+                roomId,
+                raw,
+                candidate.sdpMid,
+                candidate.sdpMLineIndex,
+              )
+              .catchError((Object error) {
+                debugPrint(
+                  'Error sending room $roomId video ICE candidate: $error',
+                );
+              }),
+        );
+      };
+
+      pc.onTrack = (event) {
+        if (event.track.kind != 'video') return;
+        if (event.streams.isNotEmpty) {
+          session.renderer.srcObject = event.streams.first;
+        }
+        session.isLoading = false;
+        session.isConnected = true;
+        session.error = null;
+        if (mounted) setState(() {});
+      };
+
+      pc.onConnectionState = (state) {
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+          session.isLoading = false;
+          session.isConnected = true;
+          session.error = null;
+        } else if (state ==
+                RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
+            state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+          session.isConnected = false;
+        }
+        if (mounted) setState(() {});
+      };
+
+      await pc.setRemoteDescription(RTCSessionDescription(offerSdp, 'offer'));
+      session.remoteDescriptionSet = true;
+
+      final answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await connection.signalR.setVideoRemoteDescription(
+        roomId,
+        answer.type ?? 'answer',
+        answer.sdp ?? '',
+      );
+
+      if (session.pendingCandidates.isNotEmpty) {
+        for (final candidate in session.pendingCandidates) {
+          try {
+            await pc.addCandidate(candidate);
+          } catch (e) {
+            debugPrint('Error adding queued room $roomId ICE candidate: $e');
+          }
+        }
+        session.pendingCandidates.clear();
+      }
+    } catch (e) {
+      session.isLoading = false;
+      session.isConnected = false;
+      session.error = e.toString();
+      if (mounted) setState(() {});
+    }
+  }
+
+  void _onVideoIceCandidate(RemoteVideoIceCandidate candidate) {
+    final session = _videoSessions[candidate.roomId];
+    if (session == null) return;
+    final normalized = candidate.candidate.startsWith('candidate:')
+        ? candidate.candidate
+        : 'candidate:${candidate.candidate}';
+    final ice = RTCIceCandidate(
+      normalized,
+      candidate.sdpMid,
+      candidate.sdpMLineIndex,
+    );
+
+    final pc = session.peerConnection;
+    if (pc != null && session.remoteDescriptionSet) {
+      unawaited(
+        pc.addCandidate(ice).catchError((Object error) {
+          debugPrint(
+            'Error adding room ${candidate.roomId} remote ICE candidate: $error',
+          );
+        }),
+      );
+      return;
+    }
+    session.pendingCandidates.add(ice);
+  }
+
+  Future<void> _disposeVideoSession(
+    int roomId, {
+    required bool notifyServer,
+  }) async {
+    final session = _videoSessions.remove(roomId);
+    if (session == null) return;
+    final connection = context.read<ConnectionProvider>();
+
+    if (notifyServer && connection.isConnected) {
+      try {
+        await connection.signalR.stopVideoStream(roomId);
+      } catch (_) {
+        // Session may already be closed server-side.
+      }
+    }
+
+    final pc = session.peerConnection;
+    session.peerConnection = null;
+    try {
+      await pc?.close();
+    } catch (_) {}
+    try {
+      await pc?.dispose();
+    } catch (_) {}
+
+    session.renderer.srcObject = null;
+    await session.renderer.dispose();
+    if (mounted) setState(() {});
+  }
+
+  void _disposeAllVideoSessions({required bool notifyServer}) {
+    final roomIds = _videoSessions.keys.toList(growable: false);
+    for (final roomId in roomIds) {
+      unawaited(_disposeVideoSession(roomId, notifyServer: notifyServer));
+    }
+  }
+
+  Future<void> _openMonitorSettings({int? roomId}) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MonitorSettingsScreen(initialRoomId: roomId),
+      ),
+    );
+    if (!mounted) return;
+    final rooms = context.read<RoomProvider>();
+    await rooms.refreshAll();
+    await _syncVideoSessions();
+  }
+
+  Future<void> _onListenPressed(Room room) async {
+    final connection = context.read<ConnectionProvider>();
+    try {
+      if (connection.listeningRoomId == room.id) {
+        await connection.stopListening();
+        return;
+      }
+      await connection.startListeningToRoom(room.id);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to start listening: $e')));
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _bindRoomProvider(context.read<RoomProvider>());
+  }
+
+  @override
+  void dispose() {
+    _videoIceSub?.cancel();
+    _signalRStateSub?.cancel();
+    _boundRoomProvider?.removeListener(_onRoomProviderChanged);
+    _disposeAllVideoSessions(notifyServer: false);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rooms = context.watch<RoomProvider>();
+    final connection = context.watch<ConnectionProvider>();
+    final audio = context.watch<AudioProvider>();
+    final now = TimeOfDay.now();
+    final clock = now.format(context);
+
+    return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AppColors.primaryWarm,
+        foregroundColor: AppColors.background,
+        onPressed: () => _openMonitorSettings(),
+        child: const Icon(Icons.add),
+      ),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: () async {
+            if (connection.isConnected) {
+              await rooms.refreshAll();
+              await _syncVideoSessions();
+            }
+          },
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+            children: [
+              _buildHeader(clock),
+              const SizedBox(height: 12),
+              _buildStats(rooms.rooms),
+              const SizedBox(height: 20),
+              if (!connection.isConnected) _buildDisconnectedBanner(),
+              if (!connection.isConnected) const SizedBox(height: 12),
+              if (rooms.rooms.isEmpty)
+                _buildEmptyState()
+              else
+                ...rooms.rooms.map(
+                  (room) => Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: _buildRoomCard(
+                      room: room,
+                      session: _videoSessions[room.id],
+                      listening: connection.listeningRoomId == room.id,
+                      muted: connection.isAudioMuted,
+                      audio: audio,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(String clock) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            'All Monitors',
+            style: AppTheme.title.copyWith(fontSize: 34),
+          ),
+        ),
+        Text(clock, style: AppTheme.caption),
+        const SizedBox(width: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.surfaceLight,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: IconButton(
+            onPressed: () => _openMonitorSettings(),
+            icon: const Icon(Icons.add, color: AppColors.primaryWarm),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStats(List<Room> rooms) {
+    final active = rooms.where((room) => room.isActive).length;
+    final offline = rooms.length - active;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          _statDot(AppColors.tealAccent, '$active Active'),
+          const SizedBox(width: 14),
+          _statDot(AppColors.secondaryWarm, '$offline Offline'),
+          const SizedBox(width: 14),
+          _statDot(AppColors.textSecondary, '${rooms.length} Total'),
+        ],
+      ),
+    );
+  }
+
+  Widget _statDot(Color color, String label) {
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: AppTheme.caption.copyWith(color: AppColors.textPrimary),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDisconnectedBanner() {
+    final settings = context.read<SettingsProvider>();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.secondaryWarm.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off, color: AppColors.secondaryWarm),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Disconnected from ${settings.serverUrl ?? 'server'}. Pull to retry.',
+              style: AppTheme.caption.copyWith(color: AppColors.textPrimary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 26),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        children: [
+          const Icon(
+            Icons.bedroom_baby,
+            size: 38,
+            color: AppColors.textSecondary,
+          ),
+          const SizedBox(height: 10),
+          Text('No monitors configured', style: AppTheme.subtitle),
+          const SizedBox(height: 4),
+          Text(
+            'Add a monitor to begin streaming audio and video.',
+            style: AppTheme.caption,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          FilledButton(
+            onPressed: () => _openMonitorSettings(),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primaryWarm,
+              foregroundColor: AppColors.background,
+            ),
+            child: const Text('Add Monitor'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRoomCard({
+    required Room room,
+    required _VideoRoomSession? session,
+    required bool listening,
+    required bool muted,
+    required AudioProvider audio,
+  }) {
+    final canListen = _canStartAudioForRoom(room);
+    final statusText = room.isActive ? 'Active' : 'Offline';
+    final statusColor = room.isActive
+        ? AppColors.tealAccent
+        : AppColors.secondaryWarm;
+    final level = listening ? audio.currentLevel?.level : null;
+    final progress = level == null
+        ? 0.0
+        : ((level - -90.0) / 90.0).clamp(0.0, 1.0).toDouble();
+    final levelLabel = level == null
+        ? '-- dB'
+        : '${level.toStringAsFixed(1)} dB';
+    final secondaryLabel = listening
+        ? _soundStatusLabel(audio.soundStatus)
+        : "Everything's peaceful";
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppColors.primaryWarm.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  _iconForRoom(room.icon),
+                  color: AppColors.primaryWarm,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  room.name,
+                  style: AppTheme.subtitle.copyWith(fontSize: 24),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(statusText, style: AppTheme.caption),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _buildPreview(room: room, session: session),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              minHeight: 7,
+              value: progress,
+              backgroundColor: AppColors.surface,
+              valueColor: const AlwaysStoppedAnimation(AppColors.primaryWarm),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Text(levelLabel, style: AppTheme.caption),
+              const Spacer(),
+              Text(
+                secondaryLabel,
+                style: AppTheme.caption.copyWith(color: AppColors.textPrimary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _cardButton(
+                  label: listening ? 'Stop' : 'Listen',
+                  icon: listening
+                      ? Icons.stop_circle_outlined
+                      : Icons.headphones,
+                  active: listening && canListen,
+                  onPressed: canListen ? () => _onListenPressed(room) : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _cardButton(
+                  label: muted ? 'Muted' : 'Speak',
+                  icon: muted ? Icons.mic_off_outlined : Icons.mic_none,
+                  active: listening && !muted,
+                  onPressed: listening
+                      ? () =>
+                            context.read<ConnectionProvider>().toggleSpeakMute()
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _cardButton(
+                  label: 'View',
+                  icon: Icons.open_in_full,
+                  active: false,
+                  onPressed: () => _openMonitorSettings(roomId: room.id),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreview({
+    required Room room,
+    required _VideoRoomSession? session,
+  }) {
+    if (session?.renderer.srcObject != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: SizedBox(
+          height: 190,
+          child: RTCVideoView(
+            session!.renderer,
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+          ),
+        ),
+      );
+    }
+
+    final isLoading = session != null && session.isLoading;
+    final hasError = session?.error != null;
+
+    return Container(
+      height: 190,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isLoading)
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(
+                hasError
+                    ? Icons.videocam_off_outlined
+                    : _iconForRoom(room.icon),
+                size: 34,
+                color: AppColors.textSecondary,
+              ),
+            const SizedBox(height: 8),
+            Text(
+              isLoading
+                  ? 'Starting video...'
+                  : hasError
+                  ? 'Video unavailable'
+                  : 'No video stream',
+              style: AppTheme.caption,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cardButton({
+    required String label,
+    required IconData icon,
+    required bool active,
+    required VoidCallback? onPressed,
+  }) {
+    return FilledButton.icon(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: active
+            ? AppColors.primaryWarm.withValues(alpha: 0.2)
+            : AppColors.surface,
+        foregroundColor: active
+            ? AppColors.primaryWarm
+            : AppColors.textSecondary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      icon: Icon(icon, size: 16),
+      label: Text(label, style: AppTheme.caption),
+    );
+  }
+
+  String _soundStatusLabel(SoundStatus status) {
+    switch (status) {
+      case SoundStatus.alert:
+        return 'Alert noise';
+      case SoundStatus.active:
+        return 'Active';
+      case SoundStatus.moderate:
+        return 'Moderate';
+      case SoundStatus.quiet:
+        return 'Quiet';
+    }
+  }
+
+  IconData _iconForRoom(String icon) {
+    switch (icon) {
+      case 'baby':
+        return Icons.child_care;
+      case 'baby-carriage':
+        return Icons.stroller;
+      case 'bed':
+        return Icons.bed;
+      case 'moon':
+        return Icons.nightlight_round;
+      case 'star':
+        return Icons.star;
+      case 'heart':
+        return Icons.favorite;
+      case 'home':
+        return Icons.home;
+      case 'door-open':
+        return Icons.door_front_door;
+      default:
+        return Icons.videocam;
+    }
+  }
+}
+
+class _VideoRoomSession {
+  final RTCVideoRenderer renderer;
+  RTCPeerConnection? peerConnection;
+  final List<RTCIceCandidate> pendingCandidates = <RTCIceCandidate>[];
+  bool remoteDescriptionSet = false;
+  bool isLoading = true;
+  bool isConnected = false;
+  String? error;
+
+  _VideoRoomSession({required this.renderer});
+}

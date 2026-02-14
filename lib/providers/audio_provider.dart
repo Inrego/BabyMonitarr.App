@@ -30,7 +30,8 @@ class AudioProvider extends ChangeNotifier {
 
   void onAudioLevel(AudioLevel level) {
     // Track the loudest sample in the current window.
-    if (_pendingPeak == null || level.displayLevel > _pendingPeak!.displayLevel) {
+    if (_pendingPeak == null ||
+        level.displayLevel > _pendingPeak!.displayLevel) {
       _pendingPeak = level;
     }
 
@@ -39,7 +40,8 @@ class AudioProvider extends ChangeNotifier {
     List<AudioLevel>? updatedHistory;
     if (level.timestamp - _lastHistoryTimestamp >= _historyIntervalMs) {
       final cutoff =
-          DateTime.now().millisecondsSinceEpoch - _historyDuration.inMilliseconds;
+          DateTime.now().millisecondsSinceEpoch -
+          _historyDuration.inMilliseconds;
       updatedHistory = [
         ..._snapshot.history.where((e) => e.timestamp >= cutoff),
         _pendingPeak!,

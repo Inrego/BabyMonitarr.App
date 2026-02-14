@@ -8,11 +8,7 @@ class SoundLevelMeter extends StatefulWidget {
   final double level;
   final SoundStatus status;
 
-  const SoundLevelMeter({
-    super.key,
-    required this.level,
-    required this.status,
-  });
+  const SoundLevelMeter({super.key, required this.level, required this.status});
 
   @override
   State<SoundLevelMeter> createState() => _SoundLevelMeterState();
@@ -31,9 +27,10 @@ class _SoundLevelMeterState extends State<SoundLevelMeter>
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    _arcAnimation = Tween<double>(begin: 0, end: 0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
+    _arcAnimation = Tween<double>(
+      begin: 0,
+      end: 0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
   }
 
   @override

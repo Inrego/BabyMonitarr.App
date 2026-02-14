@@ -23,9 +23,10 @@ class _LiveIndicatorState extends State<LiveIndicator>
       duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
-    _opacityAnimation = Tween<double>(begin: 1.0, end: 0.3).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _opacityAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.3,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
     if (widget.isLive) {
       _controller.repeat(reverse: true);
     }
@@ -63,7 +64,9 @@ class _LiveIndicatorState extends State<LiveIndicator>
               width: 8,
               height: 8,
               decoration: BoxDecoration(
-                color: AppColors.liveRed.withValues(alpha: _opacityAnimation.value),
+                color: AppColors.liveRed.withValues(
+                  alpha: _opacityAnimation.value,
+                ),
                 shape: BoxShape.circle,
               ),
             ),

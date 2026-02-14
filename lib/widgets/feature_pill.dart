@@ -23,7 +23,10 @@ class FeaturePill extends StatelessWidget {
             Icon(icon, size: 14, color: AppColors.tealAccent),
             const SizedBox(width: 6),
           ],
-          Text(label, style: AppTheme.caption.copyWith(color: AppColors.textPrimary)),
+          Text(
+            label,
+            style: AppTheme.caption.copyWith(color: AppColors.textPrimary),
+          ),
         ],
       ),
     );

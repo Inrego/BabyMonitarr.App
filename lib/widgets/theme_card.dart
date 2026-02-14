@@ -35,15 +35,17 @@ class ThemeCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: colors
-                  .map((c) => Container(
-                        width: 18,
-                        height: 18,
-                        margin: const EdgeInsets.symmetric(horizontal: 2),
-                        decoration: BoxDecoration(
-                          color: c,
-                          shape: BoxShape.circle,
-                        ),
-                      ))
+                  .map(
+                    (c) => Container(
+                      width: 18,
+                      height: 18,
+                      margin: const EdgeInsets.symmetric(horizontal: 2),
+                      decoration: BoxDecoration(
+                        color: c,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  )
                   .toList(),
             ),
             const SizedBox(height: 6),
@@ -53,14 +55,16 @@ class ThemeCard extends StatelessWidget {
                 color: isSelected
                     ? AppColors.primaryWarm
                     : AppColors.textSecondary,
-                fontWeight:
-                    isSelected ? FontWeight.w600 : FontWeight.normal,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
             if (isSelected) ...[
               const SizedBox(height: 2),
-              const Icon(Icons.check_circle,
-                  size: 14, color: AppColors.primaryWarm),
+              const Icon(
+                Icons.check_circle,
+                size: 14,
+                color: AppColors.primaryWarm,
+              ),
             ],
           ],
         ),

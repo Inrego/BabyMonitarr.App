@@ -7,7 +7,7 @@ import '../widgets/monitor_address_field.dart';
 import '../providers/settings_provider.dart';
 import '../providers/connection_provider.dart';
 import '../models/connection_state.dart';
-import 'monitoring_screen.dart';
+import 'dashboard_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -30,8 +30,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _isValidUrl(String url) {
     if (url.isEmpty) return false;
     // Accept URLs with or without scheme
-    final withScheme =
-        url.startsWith('http://') || url.startsWith('https://') ? url : 'http://$url';
+    final withScheme = url.startsWith('http://') || url.startsWith('https://')
+        ? url
+        : 'http://$url';
     return validators.isURL(withScheme, requireProtocol: false);
   }
 
@@ -46,7 +47,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     // Ensure URL has a scheme
     final normalizedUrl =
-        url.startsWith('http://') || url.startsWith('https://') ? url : 'http://$url';
+        url.startsWith('http://') || url.startsWith('https://')
+        ? url
+        : 'http://$url';
 
     setState(() {
       _status = _ConnectionStatus.connecting;
@@ -66,8 +69,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       if (!mounted) return;
 
       if (connection.isConnected ||
-          connection.connectionInfo.state ==
-              MonitorConnectionState.connected) {
+          connection.connectionInfo.state == MonitorConnectionState.connected) {
         setState(() {
           _status = _ConnectionStatus.connected;
         });
@@ -76,7 +78,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const MonitoringScreen()),
+          MaterialPageRoute(builder: (_) => const DashboardScreen()),
           (route) => false,
         );
       } else {
@@ -161,13 +163,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 8,
+                    ),
                   ),
                   child: Text(
                     'Need Help?',
-                    style:
-                        AppTheme.caption.copyWith(color: AppColors.tealAccent),
+                    style: AppTheme.caption.copyWith(
+                      color: AppColors.tealAccent,
+                    ),
                   ),
                 ),
               ),
@@ -178,17 +183,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: _urlController.text.trim().isEmpty ||
+                  onPressed:
+                      _urlController.text.trim().isEmpty ||
                           _status == _ConnectionStatus.connecting
                       ? null
                       : _connect,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primaryWarm,
                     foregroundColor: AppColors.background,
-                    disabledBackgroundColor:
-                        AppColors.primaryWarm.withValues(alpha: 0.3),
-                    disabledForegroundColor:
-                        AppColors.background.withValues(alpha: 0.5),
+                    disabledBackgroundColor: AppColors.primaryWarm.withValues(
+                      alpha: 0.3,
+                    ),
+                    disabledForegroundColor: AppColors.background.withValues(
+                      alpha: 0.5,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(26),
                     ),
@@ -211,7 +219,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.wifi, size: 14, color: AppColors.textSecondary),
+                    const Icon(
+                      Icons.wifi,
+                      size: 14,
+                      color: AppColors.textSecondary,
+                    ),
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
@@ -255,9 +267,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            Text('Connecting...',
-                style: AppTheme.caption
-                    .copyWith(color: AppColors.primaryWarm)),
+            Text(
+              'Connecting...',
+              style: AppTheme.caption.copyWith(color: AppColors.primaryWarm),
+            ),
           ],
         );
       case _ConnectionStatus.connected:

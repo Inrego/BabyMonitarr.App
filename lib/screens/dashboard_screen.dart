@@ -12,7 +12,9 @@ import '../providers/room_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../utils/room_icons.dart';
 import '../widgets/live_indicator.dart';
+import 'monitor_detail_screen.dart';
 import 'monitor_settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -29,10 +31,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   RoomProvider? _boundRoomProvider;
   bool _initialized = false;
   bool _syncInProgress = false;
+  Timer? _clockTimer;
 
   @override
   void initState() {
     super.initState();
+    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _initializeData();
     });
@@ -322,6 +328,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await _syncVideoSessions();
   }
 
+  void _openMonitorDetail(Room room) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MonitorDetailScreen(
+          room: room,
+          videoRenderer: _videoSessions[room.id]?.renderer,
+        ),
+      ),
+    );
+  }
+
   Future<void> _onListenPressed(Room room) async {
     final connection = context.read<ConnectionProvider>();
     try {
@@ -377,6 +394,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _clockTimer?.cancel();
     _videoIceSub?.cancel();
     _signalRStateSub?.cancel();
     _boundRoomProvider?.removeListener(_onRoomProviderChanged);
@@ -395,12 +413,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final clock = now.format(context);
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.primaryWarm,
-        foregroundColor: AppColors.background,
-        onPressed: () => _openMonitorSettings(),
-        child: const Icon(Icons.add),
-      ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {
@@ -423,12 +435,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   (room) => Padding(
                     padding: const EdgeInsets.only(bottom: 14),
                     child: monitoringIds.contains(room.id)
-                        ? _buildActiveRoomCard(
-                            room: room,
-                            session: _videoSessions[room.id],
-                            listening: connection.listeningRoomId == room.id,
-                            muted: connection.isAudioMuted,
-                            audio: audio,
+                        ? GestureDetector(
+                            onTap: () => _openMonitorDetail(room),
+                            child: _buildActiveRoomCard(
+                              room: room,
+                              session: _videoSessions[room.id],
+                              listening: connection.listeningRoomId == room.id,
+                              muted: connection.isAudioMuted,
+                              audio: audio,
+                            ),
                           )
                         : _buildInactiveRoomCard(room: room),
                   ),
@@ -854,28 +869,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  IconData _iconForRoom(String icon) {
-    switch (icon) {
-      case 'baby':
-        return Icons.child_care;
-      case 'baby-carriage':
-        return Icons.stroller;
-      case 'bed':
-        return Icons.bed;
-      case 'moon':
-        return Icons.nightlight_round;
-      case 'star':
-        return Icons.star;
-      case 'heart':
-        return Icons.favorite;
-      case 'home':
-        return Icons.home;
-      case 'door-open':
-        return Icons.door_front_door;
-      default:
-        return Icons.videocam;
-    }
-  }
+  IconData _iconForRoom(String icon) => iconForRoom(icon);
 }
 
 class _VideoRoomSession {

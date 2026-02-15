@@ -10,6 +10,7 @@ import '../providers/room_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../utils/room_icons.dart';
 import '../widgets/server_url_dialog.dart';
 
 class MonitorSettingsScreen extends StatefulWidget {
@@ -887,26 +888,5 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
     );
   }
 
-  IconData _iconForRoom(String icon) {
-    switch (icon) {
-      case 'baby':
-        return Icons.child_care;
-      case 'baby-carriage':
-        return Icons.stroller;
-      case 'bed':
-        return Icons.bed;
-      case 'moon':
-        return Icons.nightlight_round;
-      case 'star':
-        return Icons.star;
-      case 'heart':
-        return Icons.favorite;
-      case 'home':
-        return Icons.home;
-      case 'door-open':
-        return Icons.door_front_door;
-      default:
-        return Icons.videocam;
-    }
-  }
+  IconData _iconForRoom(String icon) => iconForRoom(icon);
 }

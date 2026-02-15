@@ -7,6 +7,7 @@ class SettingsProvider extends ChangeNotifier {
   final SettingsService _service;
   AppSettings _settings = const AppSettings();
   AudioSettings _audioSettings = const AudioSettings();
+  Set<int> _monitoringRoomIds = {};
   bool _isLoading = true;
 
   SettingsProvider({SettingsService? service})
@@ -20,8 +21,11 @@ class SettingsProvider extends ChangeNotifier {
   bool get isOnboardingComplete => _settings.onboardingComplete;
   String? get serverUrl => _settings.serverUrl;
 
+  Set<int> get monitoringRoomIds => _monitoringRoomIds;
+
   Future<void> _loadSettings() async {
     _settings = await _service.load();
+    _monitoringRoomIds = await _service.loadMonitoringRoomIds();
     _isLoading = false;
     notifyListeners();
   }
@@ -59,6 +63,24 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setAlertVolume(double volume) async {
     _settings = _settings.copyWith(alertVolume: volume);
     await _service.save(_settings);
+    notifyListeners();
+  }
+
+  Future<void> setMonitoringRoomIds(Set<int> ids) async {
+    _monitoringRoomIds = ids;
+    await _service.saveMonitoringRoomIds(ids);
+    notifyListeners();
+  }
+
+  Future<void> addMonitoringRoom(int id) async {
+    _monitoringRoomIds = {..._monitoringRoomIds, id};
+    await _service.saveMonitoringRoomIds(_monitoringRoomIds);
+    notifyListeners();
+  }
+
+  Future<void> removeMonitoringRoom(int id) async {
+    _monitoringRoomIds = {..._monitoringRoomIds}..remove(id);
+    await _service.saveMonitoringRoomIds(_monitoringRoomIds);
     notifyListeners();
   }
 

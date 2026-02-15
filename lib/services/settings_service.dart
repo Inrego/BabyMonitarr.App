@@ -8,6 +8,7 @@ class SettingsService {
   static const _keyTheme = 'selected_theme';
   static const _keyVibration = 'vibration_enabled';
   static const _keyAlertVolume = 'alert_volume';
+  static const _keyMonitoringRoomIds = 'monitoring_room_ids';
 
   final FlutterSecureStorage _storage;
 
@@ -61,5 +62,22 @@ class SettingsService {
 
   Future<void> markOnboardingComplete() async {
     await _storage.write(key: _keyOnboardingComplete, value: 'true');
+  }
+
+  Future<Set<int>> loadMonitoringRoomIds() async {
+    final raw = await _storage.read(key: _keyMonitoringRoomIds);
+    if (raw == null || raw.isEmpty) return {};
+    return raw
+        .split(',')
+        .map((s) => int.tryParse(s.trim()))
+        .whereType<int>()
+        .toSet();
+  }
+
+  Future<void> saveMonitoringRoomIds(Set<int> ids) async {
+    await _storage.write(
+      key: _keyMonitoringRoomIds,
+      value: ids.join(','),
+    );
   }
 }

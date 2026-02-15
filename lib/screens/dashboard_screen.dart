@@ -12,6 +12,7 @@ import '../providers/room_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../widgets/live_indicator.dart';
 import 'monitor_settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -92,6 +93,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _onRoomProviderChanged() {
+    if (!mounted) return;
+    final roomProvider = context.read<RoomProvider>();
+    final settingsProvider = context.read<SettingsProvider>();
+    final validIds = roomProvider.rooms.map((r) => r.id).toSet();
+    final monitoringIds = settingsProvider.monitoringRoomIds;
+    final pruned = monitoringIds.intersection(validIds);
+    if (pruned.length != monitoringIds.length) {
+      unawaited(settingsProvider.setMonitoringRoomIds(pruned));
+    }
     unawaited(_syncVideoSessions());
   }
 
@@ -99,8 +109,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!_initialized || _syncInProgress || !mounted) return;
     final connection = context.read<ConnectionProvider>();
     final roomProvider = context.read<RoomProvider>();
+    final monitoringIds = context.read<SettingsProvider>().monitoringRoomIds;
     final desiredRoomIds = roomProvider.rooms
-        .where(_canStartVideoForRoom)
+        .where((room) => monitoringIds.contains(room.id) && _canStartVideoForRoom(room))
         .map((room) => room.id)
         .toSet();
 
@@ -327,6 +338,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _startMonitoring(int roomId) async {
+    final settingsProvider = context.read<SettingsProvider>();
+    final connection = context.read<ConnectionProvider>();
+    final roomProvider = context.read<RoomProvider>();
+    await settingsProvider.addMonitoringRoom(roomId);
+    await _syncVideoSessions();
+
+    // Auto-start audio listening
+    final room = roomProvider.rooms.where((r) => r.id == roomId).firstOrNull;
+    if (room != null && _canStartAudioForRoom(room)) {
+      try {
+        await connection.startListeningToRoom(roomId);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Audio failed to start: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _stopMonitoring(int roomId) async {
+    final connection = context.read<ConnectionProvider>();
+    final settingsProvider = context.read<SettingsProvider>();
+    if (connection.listeningRoomId == roomId) {
+      await connection.stopListening();
+    }
+    await settingsProvider.removeMonitoringRoom(roomId);
+    await _syncVideoSessions();
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -347,6 +389,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final rooms = context.watch<RoomProvider>();
     final connection = context.watch<ConnectionProvider>();
     final audio = context.watch<AudioProvider>();
+    final settingsProvider = context.watch<SettingsProvider>();
+    final monitoringIds = settingsProvider.monitoringRoomIds;
     final now = TimeOfDay.now();
     final clock = now.format(context);
 
@@ -369,8 +413,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
             children: [
               _buildHeader(clock),
-              const SizedBox(height: 12),
-              _buildStats(rooms.rooms),
               const SizedBox(height: 20),
               if (!connection.isConnected) _buildDisconnectedBanner(),
               if (!connection.isConnected) const SizedBox(height: 12),
@@ -380,13 +422,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ...rooms.rooms.map(
                   (room) => Padding(
                     padding: const EdgeInsets.only(bottom: 14),
-                    child: _buildRoomCard(
-                      room: room,
-                      session: _videoSessions[room.id],
-                      listening: connection.listeningRoomId == room.id,
-                      muted: connection.isAudioMuted,
-                      audio: audio,
-                    ),
+                    child: monitoringIds.contains(room.id)
+                        ? _buildActiveRoomCard(
+                            room: room,
+                            session: _videoSessions[room.id],
+                            listening: connection.listeningRoomId == room.id,
+                            muted: connection.isAudioMuted,
+                            audio: audio,
+                          )
+                        : _buildInactiveRoomCard(room: room),
                   ),
                 ),
             ],
@@ -416,44 +460,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             onPressed: () => _openMonitorSettings(),
             icon: const Icon(Icons.add, color: AppColors.primaryWarm),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStats(List<Room> rooms) {
-    final active = rooms.where((room) => room.isActive).length;
-    final offline = rooms.length - active;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceLight,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          _statDot(AppColors.tealAccent, '$active Active'),
-          const SizedBox(width: 14),
-          _statDot(AppColors.secondaryWarm, '$offline Offline'),
-          const SizedBox(width: 14),
-          _statDot(AppColors.textSecondary, '${rooms.length} Total'),
-        ],
-      ),
-    );
-  }
-
-  Widget _statDot(Color color, String label) {
-    return Row(
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: AppTheme.caption.copyWith(color: AppColors.textPrimary),
         ),
       ],
     );
@@ -518,7 +524,103 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildRoomCard({
+  Widget _buildInactiveRoomCard({required Room room}) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppColors.primaryWarm.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  _iconForRoom(room.icon),
+                  color: AppColors.primaryWarm,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  room.name,
+                  style: AppTheme.subtitle.copyWith(fontSize: 24),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.textSecondary.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Inactive',
+                  style: AppTheme.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Center(
+            child: Column(
+              children: [
+                Icon(
+                  Icons.nightlight_round,
+                  size: 32,
+                  color: AppColors.textSecondary.withValues(alpha: 0.5),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Monitor is not active',
+                  style: AppTheme.caption.copyWith(color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => _startMonitoring(room.id),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primaryWarm,
+                foregroundColor: AppColors.background,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.play_arrow, size: 18),
+              label: const Text('Start Monitoring'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton.icon(
+              onPressed: () => _openMonitorSettings(roomId: room.id),
+              icon: const Icon(Icons.settings, size: 14, color: AppColors.textSecondary),
+              label: Text(
+                'Settings',
+                style: AppTheme.caption.copyWith(color: AppColors.textSecondary),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveRoomCard({
     required Room room,
     required _VideoRoomSession? session,
     required bool listening,
@@ -526,10 +628,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required AudioProvider audio,
   }) {
     final canListen = _canStartAudioForRoom(room);
-    final statusText = room.isActive ? 'Active' : 'Offline';
-    final statusColor = room.isActive
-        ? AppColors.tealAccent
-        : AppColors.secondaryWarm;
     final level = listening ? audio.currentLevel?.level : null;
     final progress = level == null
         ? 0.0
@@ -573,15 +671,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Container(
-                width: 8,
-                height: 8,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: statusColor,
-                  shape: BoxShape.circle,
+                  color: AppColors.tealAccent.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Monitoring',
+                  style: AppTheme.caption.copyWith(
+                    color: AppColors.tealAccent,
+                    fontSize: 11,
+                  ),
                 ),
               ),
-              const SizedBox(width: 6),
-              Text(statusText, style: AppTheme.caption),
+              const SizedBox(width: 8),
+              const LiveIndicator(),
             ],
           ),
           const SizedBox(height: 10),
@@ -611,34 +715,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Row(
             children: [
               Expanded(
-                child: _cardButton(
-                  label: listening ? 'Stop' : 'Listen',
-                  icon: listening
-                      ? Icons.stop_circle_outlined
-                      : Icons.headphones,
-                  active: listening && canListen,
-                  onPressed: canListen ? () => _onListenPressed(room) : null,
-                ),
+                child: listening
+                    ? _cardButton(
+                        label: muted ? 'Unmute' : 'Mute',
+                        icon: muted
+                            ? Icons.volume_off_outlined
+                            : Icons.volume_up_outlined,
+                        active: !muted,
+                        onPressed: () =>
+                            context.read<ConnectionProvider>().toggleAudioMute(),
+                      )
+                    : _cardButton(
+                        label: 'Listen',
+                        icon: Icons.headphones,
+                        active: false,
+                        onPressed:
+                            canListen ? () => _onListenPressed(room) : null,
+                      ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _cardButton(
-                  label: muted ? 'Muted' : 'Speak',
-                  icon: muted ? Icons.mic_off_outlined : Icons.mic_none,
-                  active: listening && !muted,
-                  onPressed: listening
-                      ? () =>
-                            context.read<ConnectionProvider>().toggleSpeakMute()
-                      : null,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _cardButton(
-                  label: 'View',
-                  icon: Icons.open_in_full,
+                  label: 'Stop',
+                  icon: Icons.stop_circle_outlined,
                   active: false,
-                  onPressed: () => _openMonitorSettings(roomId: room.id),
+                  danger: true,
+                  onPressed: () => _stopMonitoring(room.id),
                 ),
               ),
             ],
@@ -712,16 +814,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required IconData icon,
     required bool active,
     required VoidCallback? onPressed,
+    bool danger = false,
   }) {
+    final Color bg;
+    final Color fg;
+    if (danger) {
+      bg = AppColors.secondaryWarm.withValues(alpha: 0.2);
+      fg = AppColors.secondaryWarm;
+    } else if (active) {
+      bg = AppColors.primaryWarm.withValues(alpha: 0.2);
+      fg = AppColors.primaryWarm;
+    } else {
+      bg = AppColors.surface;
+      fg = AppColors.textSecondary;
+    }
+
     return FilledButton.icon(
       onPressed: onPressed,
       style: FilledButton.styleFrom(
-        backgroundColor: active
-            ? AppColors.primaryWarm.withValues(alpha: 0.2)
-            : AppColors.surface,
-        foregroundColor: active
-            ? AppColors.primaryWarm
-            : AppColors.textSecondary,
+        backgroundColor: bg,
+        foregroundColor: fg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
       icon: Icon(icon, size: 16),

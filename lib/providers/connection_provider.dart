@@ -183,7 +183,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
-  Future<void> toggleSpeakMute() async {
+  Future<void> toggleAudioMute() async {
     if (_listeningRoomId == null) return;
     _audioMuted = !_audioMuted;
     _webRtc.setAudioEnabled(!_audioMuted);

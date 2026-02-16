@@ -5,16 +5,23 @@ import 'providers/connection_provider.dart';
 import 'providers/audio_provider.dart';
 import 'providers/room_provider.dart';
 import 'providers/settings_provider.dart';
+import 'services/audio_session_service.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const BabyMonitarrApp());
+
+  final audioSession = AudioSessionService();
+  await audioSession.configureForMediaPlayback();
+
+  runApp(BabyMonitarrApp(audioSession: audioSession));
 }
 
 class BabyMonitarrApp extends StatelessWidget {
-  const BabyMonitarrApp({super.key});
+  const BabyMonitarrApp({super.key, required this.audioSession});
+
+  final AudioSessionService audioSession;
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +30,7 @@ class BabyMonitarrApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(create: (_) => AudioProvider()),
         ChangeNotifierProxyProvider<SettingsProvider, ConnectionProvider>(
-          create: (_) => ConnectionProvider(),
+          create: (_) => ConnectionProvider(audioSession: audioSession),
           update: (_, settings, connection) {
             connection!.updateSettings(settings);
             return connection;

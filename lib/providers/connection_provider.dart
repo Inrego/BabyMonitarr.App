@@ -4,6 +4,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../models/connection_state.dart';
 import '../models/audio_state.dart';
 import '../models/remote_ice_candidate.dart';
+import '../services/audio_session_service.dart';
 import '../services/signalr_service.dart';
 import '../services/webrtc_service.dart';
 import '../services/notification_service.dart';
@@ -12,6 +13,7 @@ import '../providers/audio_provider.dart';
 import '../providers/settings_provider.dart';
 
 class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
+  final AudioSessionService _audioSession;
   final SignalRService _signalR;
   final WebRtcService _webRtc;
   final NotificationService _notification;
@@ -36,11 +38,13 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   StreamSubscription? _soundAlertSub;
 
   ConnectionProvider({
+    required AudioSessionService audioSession,
     SignalRService? signalR,
     WebRtcService? webRtc,
     NotificationService? notification,
     VibrationService? vibration,
-  }) : _signalR = signalR ?? SignalRService(),
+  }) : _audioSession = audioSession,
+       _signalR = signalR ?? SignalRService(),
        _webRtc = webRtc ?? WebRtcService(),
        _notification = notification ?? NotificationService(),
        _vibration = vibration ?? VibrationService() {
@@ -200,6 +204,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _startAudioWebRtcHandshake(int roomId) async {
+    await _audioSession.ensureConfigured();
     final sdpOffer = await _signalR.startAudioStream(roomId);
     final sdpAnswer = await _webRtc.handleOffer(
       sdpOffer,
@@ -222,6 +227,13 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     await _safeCloseWebRtc('Stop listening: failed to close WebRTC');
+    if (roomId != null) {
+      try {
+        await Helper.clearAndroidCommunicationDevice();
+      } catch (e) {
+        debugPrint('Stop listening: failed to clear Android audio device: $e');
+      }
+    }
     _listeningRoomId = null;
     _audioMuted = false;
     if (resetAudioProvider) {

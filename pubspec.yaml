@@ -17,6 +17,7 @@ dependencies:
   flutter_local_notifications: ^20.0.0
   permission_handler: ^11.3.1
   flutter_secure_storage: ^9.2.2
+  flutter_svg: ^2.0.17
   provider: ^6.1.2
   vibration: ^2.0.0
   validators: ^3.0.0
@@ -27,6 +28,28 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  image_path: "assets/icon/icon.png"
+  android: true
+  min_sdk_android: 21
+  adaptive_icon_background: "#1D1D23"
+  adaptive_icon_foreground: "assets/icon/icon.png"
+  ios: true
+  remove_alpha_ios: true
+  background_color_ios: "#1D1D23"
+  web:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    background_color: "#1D1D23"
+    theme_color: "#1D1D23"
+  windows:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    icon_size: 256
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/

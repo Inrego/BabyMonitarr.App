@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
-import '../widgets/baby_mascot.dart';
 import '../widgets/feature_pill.dart';
 import 'onboarding_screen.dart';
 
@@ -25,7 +25,11 @@ class WelcomeScreen extends StatelessWidget {
                 ),
               ),
               const Spacer(flex: 1),
-              const BabyMascot(size: 200),
+              SvgPicture.asset(
+                'assets/icon/icon_transparent.svg',
+                width: 200,
+                height: 200,
+              ),
               const SizedBox(height: 32),
               Text(
                 'Watch Over Your\nLittle One',

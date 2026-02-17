@@ -28,22 +28,22 @@ class MonitorDetailScreen extends StatelessWidget {
     final audio = context.watch<AudioProvider>();
     final listening = connection.listeningRoomId == room.id;
     final muted = connection.isAudioMuted;
+    final isLive = listening || videoRenderer?.srcObject != null;
 
     return Scaffold(
       appBar: AppBar(
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(iconForRoom(room.icon), size: 20, color: AppColors.primaryWarm),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                room.name,
-                overflow: TextOverflow.ellipsis,
-              ),
+            Icon(
+              iconForRoom(room.icon),
+              size: 20,
+              color: AppColors.primaryWarm,
             ),
+            const SizedBox(width: 8),
+            Flexible(child: Text(room.name, overflow: TextOverflow.ellipsis)),
             const SizedBox(width: 10),
-            const LiveIndicator(),
+            LiveIndicator(isLive: isLive),
           ],
         ),
       ),
@@ -133,7 +133,9 @@ class MonitorDetailScreen extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 'Not listening to this room',
-                style: AppTheme.caption.copyWith(color: AppColors.textSecondary),
+                style: AppTheme.caption.copyWith(
+                  color: AppColors.textSecondary,
+                ),
               ),
             ],
           ),
@@ -154,7 +156,9 @@ class MonitorDetailScreen extends StatelessWidget {
           child: listening
               ? _controlButton(
                   label: muted ? 'Unmute' : 'Mute',
-                  icon: muted ? Icons.volume_off_outlined : Icons.volume_up_outlined,
+                  icon: muted
+                      ? Icons.volume_off_outlined
+                      : Icons.volume_up_outlined,
                   active: !muted,
                   onPressed: () => connection.toggleAudioMute(),
                 )
@@ -168,16 +172,16 @@ class MonitorDetailScreen extends StatelessWidget {
                     } catch (e) {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Failed to start listening: $e')),
+                        SnackBar(
+                          content: Text('Failed to start listening: $e'),
+                        ),
                       );
                     }
                   },
                 ),
         ),
         const SizedBox(width: 8),
-        Expanded(
-          child: _stopMonitoringButton(context),
-        ),
+        Expanded(child: _stopMonitoringButton(context)),
       ],
     );
   }
@@ -217,9 +221,25 @@ class MonitorDetailScreen extends StatelessWidget {
         final connection = context.read<ConnectionProvider>();
         final settings = context.read<SettingsProvider>();
         if (connection.listeningRoomId == room.id) {
-          await connection.stopListening();
+          try {
+            await connection.stopListening();
+          } catch (e) {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('Audio failed to stop: $e')));
+            return;
+          }
         }
-        await settings.removeMonitoringRoom(room.id);
+        try {
+          await settings.removeMonitoringRoom(room.id);
+        } catch (e) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to stop monitoring: $e')),
+          );
+          return;
+        }
         if (!context.mounted) return;
         Navigator.pop(context);
       },

@@ -29,6 +29,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   StreamSubscription? _videoIceSub;
   StreamSubscription? _signalRStateSub;
   RoomProvider? _boundRoomProvider;
+  SettingsProvider? _boundSettingsProvider;
+  Set<int> _lastMonitoringRoomIds = const <int>{};
   bool _initialized = false;
   bool _syncInProgress = false;
   Timer? _clockTimer;
@@ -54,6 +56,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     connection.setAudioProvider(audio);
     rooms.bindConnection(connection);
     _bindRoomProvider(rooms);
+    _bindSettingsProvider(settings);
 
     final url = settings.serverUrl;
     if (url != null && url.isNotEmpty && !connection.isConnected) {
@@ -111,13 +114,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     unawaited(_syncVideoSessions());
   }
 
+  void _bindSettingsProvider(SettingsProvider settingsProvider) {
+    if (identical(_boundSettingsProvider, settingsProvider)) return;
+    _boundSettingsProvider?.removeListener(_onSettingsProviderChanged);
+    _boundSettingsProvider = settingsProvider;
+    _lastMonitoringRoomIds = {...settingsProvider.monitoringRoomIds};
+    _boundSettingsProvider?.addListener(_onSettingsProviderChanged);
+  }
+
+  void _onSettingsProviderChanged() {
+    if (!mounted) return;
+    final currentIds = context.read<SettingsProvider>().monitoringRoomIds;
+    if (_lastMonitoringRoomIds.length == currentIds.length &&
+        _lastMonitoringRoomIds.containsAll(currentIds)) {
+      return;
+    }
+    _lastMonitoringRoomIds = {...currentIds};
+    unawaited(_syncVideoSessions());
+  }
+
   Future<void> _syncVideoSessions() async {
     if (!_initialized || _syncInProgress || !mounted) return;
     final connection = context.read<ConnectionProvider>();
     final roomProvider = context.read<RoomProvider>();
     final monitoringIds = context.read<SettingsProvider>().monitoringRoomIds;
     final desiredRoomIds = roomProvider.rooms
-        .where((room) => monitoringIds.contains(room.id) && _canStartVideoForRoom(room))
+        .where(
+          (room) =>
+              monitoringIds.contains(room.id) && _canStartVideoForRoom(room),
+        )
         .map((room) => room.id)
         .toSet();
 
@@ -369,9 +394,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         await connection.startListeningToRoom(roomId);
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Audio failed to start: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Audio failed to start: $e')));
       }
     }
   }
@@ -379,17 +404,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _stopMonitoring(int roomId) async {
     final connection = context.read<ConnectionProvider>();
     final settingsProvider = context.read<SettingsProvider>();
-    if (connection.listeningRoomId == roomId) {
-      await connection.stopListening();
+    try {
+      await settingsProvider.removeMonitoringRoom(roomId);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to stop monitoring: $e')));
+      return;
     }
-    await settingsProvider.removeMonitoringRoom(roomId);
+
     await _syncVideoSessions();
+
+    if (connection.listeningRoomId == roomId) {
+      try {
+        await connection.stopListening();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Audio failed to stop: $e')));
+      }
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _bindRoomProvider(context.read<RoomProvider>());
+    _bindSettingsProvider(context.read<SettingsProvider>());
   }
 
   @override
@@ -398,6 +441,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _videoIceSub?.cancel();
     _signalRStateSub?.cancel();
     _boundRoomProvider?.removeListener(_onRoomProviderChanged);
+    _boundSettingsProvider?.removeListener(_onSettingsProviderChanged);
     _disposeAllVideoSessions(notifyServer: false);
     super.dispose();
   }
@@ -599,7 +643,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'Monitor is not active',
-                  style: AppTheme.caption.copyWith(color: AppColors.textSecondary),
+                  style: AppTheme.caption.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -613,7 +659,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 backgroundColor: AppColors.primaryWarm,
                 foregroundColor: AppColors.background,
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               icon: const Icon(Icons.play_arrow, size: 18),
               label: const Text('Start Monitoring'),
@@ -623,10 +671,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Center(
             child: TextButton.icon(
               onPressed: () => _openMonitorSettings(roomId: room.id),
-              icon: const Icon(Icons.settings, size: 14, color: AppColors.textSecondary),
+              icon: const Icon(
+                Icons.settings,
+                size: 14,
+                color: AppColors.textSecondary,
+              ),
               label: Text(
                 'Settings',
-                style: AppTheme.caption.copyWith(color: AppColors.textSecondary),
+                style: AppTheme.caption.copyWith(
+                  color: AppColors.textSecondary,
+                ),
               ),
             ),
           ),
@@ -642,6 +696,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required bool muted,
     required AudioProvider audio,
   }) {
+    final isLive = listening || (session?.isConnected ?? false);
     final canListen = _canStartAudioForRoom(room);
     final level = listening ? audio.currentLevel?.level : null;
     final progress = level == null
@@ -700,7 +755,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              const LiveIndicator(),
+              LiveIndicator(isLive: isLive),
             ],
           ),
           const SizedBox(height: 10),
@@ -737,15 +792,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ? Icons.volume_off_outlined
                             : Icons.volume_up_outlined,
                         active: !muted,
-                        onPressed: () =>
-                            context.read<ConnectionProvider>().toggleAudioMute(),
+                        onPressed: () => context
+                            .read<ConnectionProvider>()
+                            .toggleAudioMute(),
                       )
                     : _cardButton(
                         label: 'Listen',
                         icon: Icons.headphones,
                         active: false,
-                        onPressed:
-                            canListen ? () => _onListenPressed(room) : null,
+                        onPressed: canListen
+                            ? () => _onListenPressed(room)
+                            : null,
                       ),
               ),
               const SizedBox(width: 8),

@@ -67,21 +67,15 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   Future<void> setMonitoringRoomIds(Set<int> ids) async {
-    _monitoringRoomIds = ids;
-    await _service.saveMonitoringRoomIds(ids);
-    notifyListeners();
+    await _updateMonitoringRoomIds(ids);
   }
 
   Future<void> addMonitoringRoom(int id) async {
-    _monitoringRoomIds = {..._monitoringRoomIds, id};
-    await _service.saveMonitoringRoomIds(_monitoringRoomIds);
-    notifyListeners();
+    await _updateMonitoringRoomIds({..._monitoringRoomIds, id});
   }
 
   Future<void> removeMonitoringRoom(int id) async {
-    _monitoringRoomIds = {..._monitoringRoomIds}..remove(id);
-    await _service.saveMonitoringRoomIds(_monitoringRoomIds);
-    notifyListeners();
+    await _updateMonitoringRoomIds({..._monitoringRoomIds}..remove(id));
   }
 
   void updateAudioSettings(AudioSettings settings) {
@@ -99,5 +93,19 @@ class SettingsProvider extends ChangeNotifier {
     );
     notifyListeners();
     return _audioSettings;
+  }
+
+  Future<void> _updateMonitoringRoomIds(Set<int> ids) async {
+    final previous = {..._monitoringRoomIds};
+    final next = {...ids};
+    _monitoringRoomIds = next;
+    notifyListeners();
+    try {
+      await _service.saveMonitoringRoomIds(next);
+    } catch (_) {
+      _monitoringRoomIds = previous;
+      notifyListeners();
+      rethrow;
+    }
   }
 }

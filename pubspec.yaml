@@ -31,12 +31,13 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
 
 flutter_launcher_icons:
-  image_path: "assets/icon/icon.png"
   android: true
   min_sdk_android: 21
+  image_path_android: "assets/icon/icon_android.png"
   adaptive_icon_background: "#1D1D23"
-  adaptive_icon_foreground: "assets/icon/icon.png"
+  adaptive_icon_foreground: "assets/icon/icon_android.png"
   ios: true
+  image_path_ios: "assets/icon/icon_ios.png"
   remove_alpha_ios: true
   background_color_ios: "#1D1D23"
   web:

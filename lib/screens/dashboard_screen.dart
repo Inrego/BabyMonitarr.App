@@ -105,12 +105,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!mounted) return;
     final roomProvider = context.read<RoomProvider>();
     final settingsProvider = context.read<SettingsProvider>();
-    final validIds = roomProvider.rooms.map((r) => r.id).toSet();
-    final monitoringIds = settingsProvider.monitoringRoomIds;
-    final pruned = monitoringIds.intersection(validIds);
-    if (pruned.length != monitoringIds.length) {
-      unawaited(settingsProvider.setMonitoringRoomIds(pruned));
+
+    if (roomProvider.isLoaded && !roomProvider.isLoading) {
+      final validIds = roomProvider.rooms.map((r) => r.id).toSet();
+      final monitoringIds = settingsProvider.monitoringRoomIds;
+      final pruned = monitoringIds.intersection(validIds);
+      if (pruned.length != monitoringIds.length) {
+        unawaited(settingsProvider.setMonitoringRoomIds(pruned));
+      }
     }
+
     unawaited(_syncVideoSessions());
   }
 

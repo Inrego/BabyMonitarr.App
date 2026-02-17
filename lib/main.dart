@@ -114,7 +114,7 @@ class _SplashScreenState extends State<_SplashScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 SvgPicture.asset(
-                  'assets/icon/icon_transparent.svg',
+                  'assets/icon/icon.svg',
                   width: 140,
                   height: 140,
                 ),

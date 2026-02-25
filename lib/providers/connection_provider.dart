@@ -696,11 +696,6 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         break;
       case AppLifecycleState.resumed:
         _isInBackground = false;
-<<<<<<< HEAD
-        _notification.cancelForegroundNotification();
-        if (isListening) {
-          unawaited(_recoverAudioSessionAfterResume());
-=======
         if (isListening) {
           unawaited(
             _notification
@@ -713,7 +708,6 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
           );
         } else {
           unawaited(_notification.stopMonitoringServiceNotification());
->>>>>>> features/persistant-audio-opencode-1-6ey
         }
         break;
       case AppLifecycleState.detached:

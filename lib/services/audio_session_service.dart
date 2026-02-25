@@ -2,6 +2,19 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 class AudioSessionService {
+  static final AndroidAudioConfiguration _androidMonitoringConfig =
+      AndroidAudioConfiguration(
+        // Let Android/media apps own focus transitions; this prevents
+        // WebRTC playout from getting stuck after transient focus changes.
+        manageAudioFocus: false,
+        androidAudioMode: AndroidAudioMode.normal,
+        androidAudioFocusMode: AndroidAudioFocusMode.gain,
+        androidAudioStreamType: AndroidAudioStreamType.music,
+        androidAudioAttributesUsageType: AndroidAudioAttributesUsageType.media,
+        androidAudioAttributesContentType:
+            AndroidAudioAttributesContentType.speech,
+      );
+
   bool _configured = false;
 
   /// Configures platform audio sessions for media playback (not voice call).
@@ -23,7 +36,7 @@ class AudioSessionService {
     if (WebRTC.platformIsAndroid) {
       await WebRTC.initialize(
         options: {
-          'androidAudioConfiguration': AndroidAudioConfiguration.media.toMap(),
+          'androidAudioConfiguration': _androidMonitoringConfig.toMap(),
         },
       );
       return;
@@ -37,9 +50,7 @@ class AudioSessionService {
       await _ensureWebRtcInitialized();
 
       if (WebRTC.platformIsAndroid) {
-        await Helper.setAndroidAudioConfiguration(
-          AndroidAudioConfiguration.media,
-        );
+        await Helper.setAndroidAudioConfiguration(_androidMonitoringConfig);
       }
 
       if (WebRTC.platformIsIOS || WebRTC.platformIsMacOS) {

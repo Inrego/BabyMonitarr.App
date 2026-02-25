@@ -363,6 +363,25 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  Future<void> _recoverAudioSessionAfterResume() async {
+    final roomId = _listeningRoomId;
+    if (roomId == null || !_signalR.isConnected || _disposed) {
+      return;
+    }
+
+    await _runSerialized(() async {
+      if (_disposed || _intentionalDisconnect) return;
+      if (_listeningRoomId != roomId || !_signalR.isConnected) return;
+
+      try {
+        await _audioSession.ensureConfigured();
+        _webRtc.setAudioEnabled(!_audioMuted);
+      } catch (e) {
+        debugPrint('Failed to recover audio session on resume: $e');
+      }
+    });
+  }
+
   void _onRemoteIceCandidate(RemoteIceCandidate candidate) {
     if (_intentionalDisconnect || _disposed) return;
     if (_listeningRoomId == null || candidate.roomId != _listeningRoomId) {
@@ -458,6 +477,9 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       case AppLifecycleState.resumed:
         _isInBackground = false;
         _notification.cancelForegroundNotification();
+        if (isListening) {
+          unawaited(_recoverAudioSessionAfterResume());
+        }
         break;
       case AppLifecycleState.detached:
         _isInBackground = false;

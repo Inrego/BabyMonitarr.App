@@ -33,6 +33,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Set<int> _lastMonitoringRoomIds = const <int>{};
   bool _initialized = false;
   bool _syncInProgress = false;
+  bool _restoringActiveListening = false;
   Timer? _clockTimer;
 
   @override
@@ -80,7 +81,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _signalRStateSub = connection.signalR.connectionState.listen((state) {
       if (!mounted) return;
       if (state == HubConnectionState.Connected) {
-        unawaited(context.read<RoomProvider>().refreshAll());
+        unawaited(_handleSignalRConnected());
       } else if (state == HubConnectionState.Disconnected) {
         _disposeAllVideoSessions(notifyServer: false);
       }
@@ -92,6 +93,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {});
     }
     await _syncVideoSessions();
+    await _restoreActiveListeningIfNeeded();
+  }
+
+  Future<void> _handleSignalRConnected() async {
+    if (!mounted) return;
+    await context.read<RoomProvider>().refreshAll();
+    await _syncVideoSessions();
+    await _restoreActiveListeningIfNeeded();
   }
 
   void _bindRoomProvider(RoomProvider roomProvider) {
@@ -116,6 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     unawaited(_syncVideoSessions());
+    unawaited(_restoreActiveListeningIfNeeded());
   }
 
   void _bindSettingsProvider(SettingsProvider settingsProvider) {
@@ -128,13 +138,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _onSettingsProviderChanged() {
     if (!mounted) return;
-    final currentIds = context.read<SettingsProvider>().monitoringRoomIds;
+    final settings = context.read<SettingsProvider>();
+    final currentIds = settings.monitoringRoomIds;
     if (_lastMonitoringRoomIds.length == currentIds.length &&
         _lastMonitoringRoomIds.containsAll(currentIds)) {
+      unawaited(_restoreActiveListeningIfNeeded());
       return;
     }
     _lastMonitoringRoomIds = {...currentIds};
     unawaited(_syncVideoSessions());
+    unawaited(_restoreActiveListeningIfNeeded());
+  }
+
+  Future<void> _restoreActiveListeningIfNeeded() async {
+    if (!mounted || !_initialized || _restoringActiveListening) return;
+
+    final connection = context.read<ConnectionProvider>();
+    final settings = context.read<SettingsProvider>();
+    final roomProvider = context.read<RoomProvider>();
+
+    if (!connection.isConnected) return;
+    final activeRoomId = settings.activeListeningRoomId;
+    if (activeRoomId == null) return;
+    if (connection.listeningRoomId == activeRoomId) return;
+
+    final room = roomProvider.roomById(activeRoomId);
+    if (room == null ||
+        !settings.monitoringRoomIds.contains(activeRoomId) ||
+        !_canStartAudioForRoom(room)) {
+      await settings.setActiveListeningRoomId(null);
+      return;
+    }
+
+    _restoringActiveListening = true;
+    try {
+      await connection.startListeningToRoom(activeRoomId);
+    } catch (e) {
+      debugPrint('Failed restoring active listening room $activeRoomId: $e');
+    } finally {
+      _restoringActiveListening = false;
+    }
   }
 
   Future<void> _syncVideoSessions() async {

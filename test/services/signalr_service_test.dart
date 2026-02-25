@@ -13,7 +13,7 @@ void main() {
 
       expect(parsed, isNotNull);
       expect(parsed!.roomId, 5);
-      expect(parsed!.candidate, contains('candidate:1'));
+      expect(parsed.candidate, contains('candidate:1'));
       expect(parsed.sdpMid, '0');
       expect(parsed.sdpMLineIndex, 0);
     });
@@ -103,6 +103,18 @@ void main() {
         SignalRService.normalizeServerUrl('http://localhost:5148/audioHub'),
         'http://localhost:5148',
       );
+    });
+  });
+
+  group('SignalRService.reconnectDelayForAttempt', () {
+    test('keeps reconnecting forever with capped delay', () {
+      expect(SignalRService.reconnectDelayForAttempt(0), 0);
+      expect(SignalRService.reconnectDelayForAttempt(1), 2000);
+      expect(SignalRService.reconnectDelayForAttempt(2), 5000);
+      expect(SignalRService.reconnectDelayForAttempt(3), 10000);
+      expect(SignalRService.reconnectDelayForAttempt(4), 15000);
+      expect(SignalRService.reconnectDelayForAttempt(8), 15000);
+      expect(SignalRService.reconnectDelayForAttempt(1000), 15000);
     });
   });
 }

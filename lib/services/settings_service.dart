@@ -9,6 +9,7 @@ class SettingsService {
   static const _keyVibration = 'vibration_enabled';
   static const _keyAlertVolume = 'alert_volume';
   static const _keyMonitoringRoomIds = 'monitoring_room_ids';
+  static const _keyActiveListeningRoomId = 'active_listening_room_id';
 
   final FlutterSecureStorage _storage;
 
@@ -75,9 +76,20 @@ class SettingsService {
   }
 
   Future<void> saveMonitoringRoomIds(Set<int> ids) async {
-    await _storage.write(
-      key: _keyMonitoringRoomIds,
-      value: ids.join(','),
-    );
+    await _storage.write(key: _keyMonitoringRoomIds, value: ids.join(','));
+  }
+
+  Future<int?> loadActiveListeningRoomId() async {
+    final raw = await _storage.read(key: _keyActiveListeningRoomId);
+    if (raw == null || raw.trim().isEmpty) return null;
+    return int.tryParse(raw.trim());
+  }
+
+  Future<void> saveActiveListeningRoomId(int? roomId) async {
+    if (roomId == null) {
+      await _storage.delete(key: _keyActiveListeningRoomId);
+      return;
+    }
+    await _storage.write(key: _keyActiveListeningRoomId, value: '$roomId');
   }
 }

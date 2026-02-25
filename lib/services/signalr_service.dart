@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
+import 'package:signalr_netcore/iretry_policy.dart';
 import 'package:signalr_netcore/signalr_client.dart';
 import '../models/audio_settings.dart';
 import '../models/global_settings.dart';
@@ -10,6 +11,9 @@ import '../models/remote_video_ice_candidate.dart';
 import '../models/room.dart';
 
 class SignalRService {
+  static const int _defaultKeepAliveMs = 10000;
+  static const int _defaultServerTimeoutMs = 35000;
+
   HubConnection? _connection;
   bool _disposed = false;
   StreamSubscription<LogRecord>? _logSubscription;
@@ -57,8 +61,12 @@ class SignalRService {
           ),
         )
         .configureLogging(logger)
-        .withAutomaticReconnect()
+        .withAutomaticReconnect(reconnectPolicy: _InfiniteRetryPolicy())
         .build();
+
+    _connection!
+      ..keepAliveIntervalInMilliseconds = _defaultKeepAliveMs
+      ..serverTimeoutInMilliseconds = _defaultServerTimeoutMs;
 
     _connection!.onclose(({error}) {
       if (!_disposed) {
@@ -450,5 +458,23 @@ class SignalRService {
       return raw.map((key, value) => MapEntry(key.toString(), value));
     }
     return null;
+  }
+
+  static int reconnectDelayForAttempt(int previousRetryCount) {
+    if (previousRetryCount <= 0) return 0;
+    if (previousRetryCount == 1) return 2000;
+    if (previousRetryCount == 2) return 5000;
+    if (previousRetryCount == 3) return 10000;
+    if (previousRetryCount == 4) return 15000;
+    return 15000;
+  }
+}
+
+class _InfiniteRetryPolicy implements IRetryPolicy {
+  @override
+  int? nextRetryDelayInMilliseconds(RetryContext retryContext) {
+    return SignalRService.reconnectDelayForAttempt(
+      retryContext.previousRetryCount,
+    );
   }
 }

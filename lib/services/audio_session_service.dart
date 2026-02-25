@@ -54,6 +54,17 @@ class AudioSessionService {
       }
 
       if (WebRTC.platformIsIOS || WebRTC.platformIsMacOS) {
+        await Helper.setAppleAudioConfiguration(
+          AppleAudioConfiguration(
+            appleAudioCategory: AppleAudioCategory.playback,
+            appleAudioCategoryOptions: {
+              AppleAudioCategoryOption.allowBluetooth,
+              AppleAudioCategoryOption.allowBluetoothA2DP,
+              AppleAudioCategoryOption.allowAirPlay,
+            },
+            appleAudioMode: AppleAudioMode.spokenAudio,
+          ),
+        );
         await Helper.setAppleAudioIOMode(AppleAudioIOMode.remoteOnly);
       }
     } catch (e) {

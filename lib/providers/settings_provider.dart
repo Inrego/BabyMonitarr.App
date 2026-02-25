@@ -8,6 +8,7 @@ class SettingsProvider extends ChangeNotifier {
   AppSettings _settings = const AppSettings();
   AudioSettings _audioSettings = const AudioSettings();
   Set<int> _monitoringRoomIds = {};
+  int? _activeListeningRoomId;
   bool _isLoading = true;
 
   SettingsProvider({SettingsService? service})
@@ -22,10 +23,12 @@ class SettingsProvider extends ChangeNotifier {
   String? get serverUrl => _settings.serverUrl;
 
   Set<int> get monitoringRoomIds => _monitoringRoomIds;
+  int? get activeListeningRoomId => _activeListeningRoomId;
 
   Future<void> _loadSettings() async {
     _settings = await _service.load();
     _monitoringRoomIds = await _service.loadMonitoringRoomIds();
+    _activeListeningRoomId = await _service.loadActiveListeningRoomId();
     _isLoading = false;
     notifyListeners();
   }
@@ -76,6 +79,23 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> removeMonitoringRoom(int id) async {
     await _updateMonitoringRoomIds({..._monitoringRoomIds}..remove(id));
+    if (_activeListeningRoomId == id) {
+      await setActiveListeningRoomId(null);
+    }
+  }
+
+  Future<void> setActiveListeningRoomId(int? roomId) async {
+    if (_activeListeningRoomId == roomId) return;
+    final previous = _activeListeningRoomId;
+    _activeListeningRoomId = roomId;
+    notifyListeners();
+    try {
+      await _service.saveActiveListeningRoomId(roomId);
+    } catch (_) {
+      _activeListeningRoomId = previous;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   void updateAudioSettings(AudioSettings settings) {

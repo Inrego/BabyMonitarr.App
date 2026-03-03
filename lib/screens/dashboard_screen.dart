@@ -557,6 +557,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildHeader(String clock) {
+    final keepScreenOn = context.watch<SettingsProvider>().keepScreenOn;
+
     return Row(
       children: [
         Expanded(
@@ -567,6 +569,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         Text(clock, style: AppTheme.caption),
         const SizedBox(width: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: keepScreenOn
+                ? AppColors.primaryWarm.withValues(alpha: 0.2)
+                : AppColors.surfaceLight,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: IconButton(
+            onPressed: () => context
+                .read<SettingsProvider>()
+                .setKeepScreenOn(!keepScreenOn),
+            tooltip: keepScreenOn ? 'Screen stays on' : 'Screen may sleep',
+            icon: Icon(
+              Icons.brightness_high,
+              color: keepScreenOn
+                  ? AppColors.primaryWarm
+                  : AppColors.textSecondary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
         Container(
           decoration: BoxDecoration(
             color: AppColors.surfaceLight,

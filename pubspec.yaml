@@ -23,6 +23,7 @@ dependencies:
   validators: ^3.0.0
   google_fonts: ^8.0.2
   fl_chart: ^1.1.1
+  wakelock_plus: ^1.4.0
 
 dev_dependencies:
   flutter_test:

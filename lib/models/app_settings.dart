@@ -5,6 +5,7 @@ class AppSettings {
   final String selectedTheme;
   final bool vibrationEnabled;
   final double alertVolume;
+  final bool keepScreenOn;
 
   const AppSettings({
     this.serverUrl,
@@ -13,6 +14,7 @@ class AppSettings {
     this.selectedTheme = 'warm',
     this.vibrationEnabled = true,
     this.alertVolume = 0.5,
+    this.keepScreenOn = false,
   });
 
   AppSettings copyWith({
@@ -22,6 +24,7 @@ class AppSettings {
     String? selectedTheme,
     bool? vibrationEnabled,
     double? alertVolume,
+    bool? keepScreenOn,
   }) {
     return AppSettings(
       serverUrl: serverUrl ?? this.serverUrl,
@@ -30,6 +33,7 @@ class AppSettings {
       selectedTheme: selectedTheme ?? this.selectedTheme,
       vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
       alertVolume: alertVolume ?? this.alertVolume,
+      keepScreenOn: keepScreenOn ?? this.keepScreenOn,
     );
   }
 }

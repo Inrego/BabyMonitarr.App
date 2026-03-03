@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/app_settings.dart';
 import '../models/audio_settings.dart';
 import '../services/settings_service.dart';
@@ -30,6 +31,9 @@ class SettingsProvider extends ChangeNotifier {
     _monitoringRoomIds = await _service.loadMonitoringRoomIds();
     _activeListeningRoomIds = await _service.loadActiveListeningRoomIds();
     _isLoading = false;
+    if (_settings.keepScreenOn) {
+      WakelockPlus.enable();
+    }
     notifyListeners();
   }
 
@@ -66,6 +70,19 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setAlertVolume(double volume) async {
     _settings = _settings.copyWith(alertVolume: volume);
     await _service.save(_settings);
+    notifyListeners();
+  }
+
+  bool get keepScreenOn => _settings.keepScreenOn;
+
+  Future<void> setKeepScreenOn(bool enabled) async {
+    _settings = _settings.copyWith(keepScreenOn: enabled);
+    await _service.save(_settings);
+    if (enabled) {
+      await WakelockPlus.enable();
+    } else {
+      await WakelockPlus.disable();
+    }
     notifyListeners();
   }
 

@@ -976,11 +976,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (session?.renderer.srcObject != null) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(14),
-        child: SizedBox(
-          height: 190,
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
           child: RTCVideoView(
             session!.renderer,
-            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
           ),
         ),
       );
@@ -989,40 +989,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final isLoading = session != null && session.isLoading;
     final hasError = session?.error != null;
 
-    return Container(
-      height: 190,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isLoading)
-              const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              Icon(
-                hasError
-                    ? Icons.videocam_off_outlined
-                    : _iconForRoom(room.icon),
-                size: 34,
-                color: AppColors.textSecondary,
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isLoading)
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  hasError
+                      ? Icons.videocam_off_outlined
+                      : _iconForRoom(room.icon),
+                  size: 34,
+                  color: AppColors.textSecondary,
+                ),
+              const SizedBox(height: 8),
+              Text(
+                isLoading
+                    ? 'Starting video...'
+                    : hasError
+                    ? 'Video unavailable'
+                    : 'No video stream',
+                style: AppTheme.caption,
               ),
-            const SizedBox(height: 8),
-            Text(
-              isLoading
-                  ? 'Starting video...'
-                  : hasError
-                  ? 'Video unavailable'
-                  : 'No video stream',
-              style: AppTheme.caption,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

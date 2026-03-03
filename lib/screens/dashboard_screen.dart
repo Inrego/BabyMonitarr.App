@@ -13,6 +13,7 @@ import '../providers/settings_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/room_icons.dart';
+import '../services/pip_service.dart';
 import '../widgets/live_indicator.dart';
 import 'monitor_detail_screen.dart';
 import 'monitor_settings_screen.dart';
@@ -35,6 +36,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _syncInProgress = false;
   bool _restoringActiveListening = false;
   Timer? _clockTimer;
+  final PipService _pipService = PipService();
+  bool _pipSupported = false;
 
   @override
   void initState() {
@@ -88,6 +91,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
       unawaited(_syncVideoSessions());
     });
+
+    _pipSupported = await _pipService.isPipSupported();
+    _pipService.isInPipMode.addListener(_onPipModeChanged);
 
     _initialized = true;
     if (mounted) {
@@ -366,6 +372,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     int roomId, {
     required bool notifyServer,
   }) async {
+    if (_pipService.activePipRoomId == roomId) {
+      await _pipService.exitPip();
+    }
     final session = _videoSessions.remove(roomId);
     if (session == null) return;
     final connection = context.read<ConnectionProvider>();
@@ -460,6 +469,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _stopMonitoring(int roomId) async {
+    if (_pipService.activePipRoomId == roomId) {
+      await _pipService.exitPip();
+    }
     final connection = context.read<ConnectionProvider>();
     final settingsProvider = context.read<SettingsProvider>();
     try {
@@ -486,6 +498,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  void _onPipModeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _onPipPressed(int roomId) async {
+    if (_pipService.activePipRoomId == roomId) {
+      await _pipService.exitPip();
+    } else {
+      final success = await _pipService.enterPip(roomId: roomId);
+      if (!success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Picture-in-Picture is not available')),
+        );
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -500,12 +530,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _signalRStateSub?.cancel();
     _boundRoomProvider?.removeListener(_onRoomProviderChanged);
     _boundSettingsProvider?.removeListener(_onSettingsProviderChanged);
+    _pipService.isInPipMode.removeListener(_onPipModeChanged);
+    _pipService.dispose();
     _disposeAllVideoSessions(notifyServer: false);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // In PIP mode, show only the video fullscreen
+    if (_pipService.isInPipMode.value) {
+      final pipSession = _videoSessions[_pipService.activePipRoomId];
+      if (pipSession?.renderer.srcObject != null) {
+        return Scaffold(
+          body: RTCVideoView(
+            pipSession!.renderer,
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+          ),
+        );
+      }
+    }
+
     final rooms = context.watch<RoomProvider>();
     final connection = context.watch<ConnectionProvider>();
     final audio = context.watch<AudioProvider>();
@@ -900,6 +945,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             : null,
                       ),
               ),
+              if (_pipSupported && session?.isConnected == true) ...[
+                const SizedBox(width: 8),
+                _pipButton(
+                  active: _pipService.activePipRoomId == room.id,
+                  onPressed: () => _onPipPressed(room.id),
+                ),
+              ],
               const SizedBox(width: 8),
               Expanded(
                 child: _cardButton(
@@ -1005,6 +1057,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       icon: Icon(icon, size: 16),
       label: Text(label, style: AppTheme.caption),
+    );
+  }
+
+  Widget _pipButton({
+    required bool active,
+    required VoidCallback onPressed,
+  }) {
+    final bg = active
+        ? AppColors.primaryWarm.withValues(alpha: 0.2)
+        : AppColors.surface;
+    final fg = active ? AppColors.primaryWarm : AppColors.textSecondary;
+
+    return SizedBox(
+      height: 40,
+      width: 40,
+      child: Material(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onPressed,
+          child: Icon(Icons.picture_in_picture_alt, size: 18, color: fg),
+        ),
+      ),
     );
   }
 

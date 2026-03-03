@@ -11,6 +11,7 @@ import AVFoundation
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     registerAudioInterruptionObserver()
+    registerPipChannel()
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -18,6 +19,20 @@ import AVFoundation
   deinit {
     if let observer = audioInterruptionObserver {
       NotificationCenter.default.removeObserver(observer)
+    }
+  }
+
+  private func registerPipChannel() {
+    guard let controller = window?.rootViewController as? FlutterViewController else { return }
+    let channel = FlutterMethodChannel(name: "babymonitarr/pip", binaryMessenger: controller.binaryMessenger)
+    channel.setMethodCallHandler { (call, result) in
+      switch call.method {
+      case "isPipSupported":
+        // iOS PIP with WebRTC requires native AVPictureInPictureController integration (future work)
+        result(false)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
     }
   }
 

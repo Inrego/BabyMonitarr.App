@@ -1,7 +1,11 @@
 package com.babymonitarr.babymonitarr
 
+import android.app.PictureInPictureParams
 import android.content.Context
+import android.content.res.Configuration
+import android.os.Build
 import android.util.Log
+import android.util.Rational
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
@@ -13,6 +17,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val lifecycleChannel = "babymonitarr/lifecycle"
         private const val monitoringServiceChannel = "babymonitarr/monitoring_service"
+        private const val pipChannel = "babymonitarr/pip"
         private const val cleanupMethod = "cleanupWebRtcOrientationReceiver"
         private const val startMonitoringServiceMethod = "startMonitoringService"
         private const val updateMonitoringServiceMethod = "updateMonitoringService"
@@ -20,6 +25,8 @@ class MainActivity : FlutterActivity() {
         private const val tag = "MainActivity"
         private const val engineId = "babymonitarr_persistent_engine"
     }
+
+    private var pipMethodChannel: MethodChannel? = null
 
     override fun provideFlutterEngine(context: Context): FlutterEngine {
         val cached = FlutterEngineCache.getInstance().get(engineId)
@@ -80,6 +87,59 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        pipMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, pipChannel)
+        pipMethodChannel!!.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isPipSupported" -> {
+                    result.success(
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                        packageManager.hasSystemFeature(
+                            android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE
+                        )
+                    )
+                }
+                "enterPip" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        try {
+                            val width = call.argument<Int>("aspectRatioWidth") ?: 16
+                            val height = call.argument<Int>("aspectRatioHeight") ?: 9
+                            val params = PictureInPictureParams.Builder()
+                                .setAspectRatio(Rational(width, height))
+                                .build()
+                            enterPictureInPictureMode(params)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            Log.e(tag, "Failed to enter PIP mode", e)
+                            result.success(false)
+                        }
+                    } else {
+                        result.success(false)
+                    }
+                }
+                "exitPip" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode) {
+                        val intent = intent
+                        intent.flags = android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        startActivity(intent)
+                    }
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            pipMethodChannel?.invokeMethod("onPipEntered", null)
+        } else {
+            pipMethodChannel?.invokeMethod("onPipDismissed", null)
+        }
     }
 
     private fun cleanupWebRtcOrientationReceiver() {

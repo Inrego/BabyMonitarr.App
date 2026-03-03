@@ -55,6 +55,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final rooms = context.read<RoomProvider>();
 
     connection.setAudioProvider(audio);
+    connection.setRoomProvider(rooms);
     rooms.bindConnection(connection);
     _bindRoomProvider(rooms);
     _bindSettingsProvider(settings);
@@ -793,12 +794,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 : (roomAudio.currentLevel?.status ?? SoundStatus.quiet),
           )
         : "Everything's peaceful";
+    final isAlerting =
+        listening && roomAudio.alertState == AlertState.alerting;
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.surfaceLight,
         borderRadius: BorderRadius.circular(16),
+        border: isAlerting
+            ? Border.all(color: AppColors.secondaryWarm, width: 2.0)
+            : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -862,7 +868,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const Spacer(),
               Text(
                 secondaryLabel,
-                style: AppTheme.caption.copyWith(color: AppColors.textPrimary),
+                style: AppTheme.caption.copyWith(
+                  color: isAlerting
+                      ? AppColors.secondaryWarm
+                      : AppColors.textPrimary,
+                ),
               ),
             ],
           ),

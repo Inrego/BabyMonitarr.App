@@ -10,6 +10,7 @@ import '../services/signalr_service.dart';
 import '../services/vibration_service.dart';
 import '../services/webrtc_service.dart';
 import 'audio_provider.dart';
+import 'room_provider.dart';
 import 'settings_provider.dart';
 
 class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
@@ -25,9 +26,9 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   ConnectionInfo _connectionInfo = const ConnectionInfo();
   AudioProvider? _audioProvider;
+  RoomProvider? _roomProvider;
   SettingsProvider? _settingsProvider;
   bool _intentionalDisconnect = false;
-  bool _isInBackground = false;
   bool _disposed = false;
   Future<void> _operationQueue = Future.value();
 
@@ -83,6 +84,10 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void setAudioProvider(AudioProvider provider) {
     _audioProvider = provider;
+  }
+
+  void setRoomProvider(RoomProvider provider) {
+    _roomProvider = provider;
   }
 
   Future<void> connect(String serverUrl) {
@@ -259,7 +264,9 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     ) {
       _markAudioPacketReceived(session);
       _audioProvider?.onSoundAlertForRoom(roomId, alert);
-      _handleSoundAlert(alert);
+      final roomName =
+          _roomProvider?.roomById(roomId)?.name ?? 'Room $roomId';
+      _handleSoundAlert(alert, roomName: roomName);
     });
 
     return session;
@@ -344,17 +351,16 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     await session.dispose();
   }
 
-  void _handleSoundAlert(SoundAlert alert) {
+  void _handleSoundAlert(SoundAlert alert, {required String roomName}) {
     if (_disposed) return;
     if (_settingsProvider?.settings.vibrationEnabled ?? true) {
       _vibration.vibratePattern();
     }
-    if (_isInBackground) {
-      _notification.showAlertNotification(
-        level: alert.level,
-        threshold: alert.threshold,
-      );
-    }
+    _notification.showAlertNotification(
+      level: alert.level,
+      threshold: alert.threshold,
+      roomName: roomName,
+    );
   }
 
   Future<void> _persistActiveListeningRooms() async {
@@ -754,7 +760,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
-        _isInBackground = true;
+
         if (isListening) {
           _startWatchdog();
           unawaited(
@@ -768,7 +774,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
         break;
       case AppLifecycleState.resumed:
-        _isInBackground = false;
+
         if (isListening) {
           unawaited(
             _refreshMonitoringNotification().catchError((e) {
@@ -781,7 +787,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
         break;
       case AppLifecycleState.detached:
-        _isInBackground = true;
+
         if (isListening) {
           _startWatchdog();
           unawaited(

@@ -55,6 +55,7 @@ class NotificationService {
   Future<void> showAlertNotification({
     required double level,
     required double threshold,
+    String? roomName,
   }) async {
     await initialize();
 
@@ -77,10 +78,12 @@ class NotificationService {
     );
 
     final absLevel = level.abs().toStringAsFixed(1);
+    final title =
+        roomName != null ? 'Sound Alert in $roomName' : 'Sound Alert';
     try {
       await _plugin.show(
         id: _soundAlertNotificationId,
-        title: 'Sound Alert',
+        title: title,
         body: 'Sound level at $absLevel dB exceeds threshold',
         notificationDetails: details,
       );

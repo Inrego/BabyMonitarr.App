@@ -6,6 +6,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../providers/connection_provider.dart';
 import '../providers/audio_provider.dart';
+import '../providers/room_provider.dart';
 import '../providers/settings_provider.dart';
 import '../models/connection_state.dart';
 import '../widgets/live_indicator.dart';
@@ -43,6 +44,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     final audio = context.read<AudioProvider>();
 
     connection.setAudioProvider(audio);
+    connection.setRoomProvider(context.read<RoomProvider>());
 
     final url = settings.serverUrl;
     if (url != null &&

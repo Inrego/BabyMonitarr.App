@@ -90,9 +90,14 @@ class NotificationService {
   Future<void> startMonitoringServiceNotification({
     bool reconnecting = false,
     int? roomId,
+    int? roomCount,
   }) async {
     await initialize();
-    final roomLabel = roomId == null ? '' : ' room $roomId';
+    final roomLabel = roomCount != null && roomCount > 1
+        ? ' $roomCount rooms'
+        : roomId == null
+        ? ''
+        : ' room $roomId';
     final body = reconnecting
         ? 'Reconnecting$roomLabel. Monitoring stays active.'
         : 'Monitoring$roomLabel is active in the background.';

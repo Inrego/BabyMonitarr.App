@@ -158,23 +158,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final roomProvider = context.read<RoomProvider>();
 
     if (!connection.isConnected) return;
-    final activeRoomId = settings.activeListeningRoomId;
-    if (activeRoomId == null) return;
-    if (connection.listeningRoomId == activeRoomId) return;
+    final desiredActiveRoomIds = settings.activeListeningRoomIds;
+    if (desiredActiveRoomIds.isEmpty) return;
 
-    final room = roomProvider.roomById(activeRoomId);
-    if (room == null ||
-        !settings.monitoringRoomIds.contains(activeRoomId) ||
-        !_canStartAudioForRoom(room)) {
-      await settings.setActiveListeningRoomId(null);
-      return;
+    final validRoomIds = <int>{};
+    for (final roomId in desiredActiveRoomIds) {
+      final room = roomProvider.roomById(roomId);
+      if (room == null ||
+          !settings.monitoringRoomIds.contains(roomId) ||
+          !_canStartAudioForRoom(room)) {
+        continue;
+      }
+      validRoomIds.add(roomId);
     }
+
+    if (validRoomIds.length != desiredActiveRoomIds.length) {
+      await settings.setActiveListeningRoomIds(validRoomIds);
+    }
+
+    final missingRoomIds = validRoomIds.difference(connection.listeningRoomIds);
+    if (missingRoomIds.isEmpty) return;
 
     _restoringActiveListening = true;
     try {
-      await connection.startListeningToRoom(activeRoomId);
-    } catch (e) {
-      debugPrint('Failed restoring active listening room $activeRoomId: $e');
+      for (final roomId in missingRoomIds) {
+        try {
+          await connection.startListeningToRoom(roomId);
+        } catch (e) {
+          debugPrint('Failed restoring active listening room $roomId: $e');
+        }
+      }
     } finally {
       _restoringActiveListening = false;
     }
@@ -245,11 +258,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     try {
       final offerSdp = await connection.signalR.startVideoStream(roomId);
-      final pc = await createPeerConnection({
-        'iceServers': [
-          {'urls': 'stun:stun.l.google.com:19302'},
-        ],
-      });
+      final rtcConfig = await connection.signalR.getWebRtcConfig();
+      final pc = await createPeerConnection(rtcConfig.toPeerConnectionConfig());
       session.peerConnection = pc;
 
       pc.onIceCandidate = (candidate) {
@@ -414,8 +424,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _onListenPressed(Room room) async {
     final connection = context.read<ConnectionProvider>();
     try {
-      if (connection.listeningRoomId == room.id) {
-        await connection.stopListening();
+      if (connection.isListeningToRoom(room.id)) {
+        await connection.stopListeningToRoom(room.id);
         return;
       }
       await connection.startListeningToRoom(room.id);
@@ -463,9 +473,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     await _syncVideoSessions();
 
-    if (connection.listeningRoomId == roomId) {
+    if (connection.isListeningToRoom(roomId)) {
       try {
-        await connection.stopListening();
+        await connection.stopListeningToRoom(roomId);
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(
@@ -531,8 +541,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             child: _buildActiveRoomCard(
                               room: room,
                               session: _videoSessions[room.id],
-                              listening: connection.listeningRoomId == room.id,
-                              muted: connection.isAudioMuted,
+                              listening: connection.isListeningToRoom(room.id),
+                              muted: connection.isAudioMutedForRoom(room.id),
                               audio: audio,
                             ),
                           )
@@ -745,7 +755,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }) {
     final isLive = listening || (session?.isConnected ?? false);
     final canListen = _canStartAudioForRoom(room);
-    final level = listening ? audio.currentLevel?.level : null;
+    final roomAudio = audio.snapshotForRoom(room.id);
+    final level = listening ? roomAudio.currentLevel?.level : null;
     final progress = level == null
         ? 0.0
         : ((level - -90.0) / 90.0).clamp(0.0, 1.0).toDouble();
@@ -753,7 +764,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? '-- dB'
         : '${level.toStringAsFixed(1)} dB';
     final secondaryLabel = listening
-        ? _soundStatusLabel(audio.soundStatus)
+        ? _soundStatusLabel(
+            roomAudio.alertState == AlertState.alerting
+                ? SoundStatus.alert
+                : (roomAudio.currentLevel?.status ?? SoundStatus.quiet),
+          )
         : "Everything's peaceful";
 
     return Container(
@@ -841,7 +856,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         active: !muted,
                         onPressed: () => context
                             .read<ConnectionProvider>()
-                            .toggleAudioMute(),
+                            .toggleAudioMuteForRoom(room.id),
                       )
                     : _cardButton(
                         label: 'Listen',

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'data_channel_handler.dart';
+import '../models/webrtc_client_config.dart';
 
 class WebRtcService {
   RTCPeerConnection? _peerConnection;
@@ -29,16 +30,14 @@ class WebRtcService {
   Future<String> handleOffer(
     String sdpOffer, {
     void Function(RTCIceCandidate candidate)? onIceCandidate,
+    WebRtcClientConfig? clientConfig,
   }) async {
     _remoteDescriptionSet = false;
     _pendingCandidates.clear();
     _seenRemoteCandidateKeys.clear();
 
-    final config = {
-      'iceServers': [
-        {'urls': 'stun:stun.l.google.com:19302'},
-      ],
-    };
+    final config = (clientConfig ?? WebRtcClientConfig.fallback())
+        .toPeerConnectionConfig();
 
     _peerConnection = await createPeerConnection(config);
 

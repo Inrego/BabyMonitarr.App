@@ -9,12 +9,14 @@ import '../models/nest_device.dart';
 import '../models/remote_ice_candidate.dart';
 import '../models/remote_video_ice_candidate.dart';
 import '../models/room.dart';
+import '../models/webrtc_client_config.dart';
 
 class SignalRService {
   static const int _defaultKeepAliveMs = 10000;
   static const int _defaultServerTimeoutMs = 35000;
 
   HubConnection? _connection;
+  WebRtcClientConfig? _cachedWebRtcConfig;
   bool _disposed = false;
   StreamSubscription<LogRecord>? _logSubscription;
 
@@ -130,6 +132,7 @@ class SignalRService {
 
     try {
       await _connection!.start();
+      _cachedWebRtcConfig = null;
       _connectionStateController.add(HubConnectionState.Connected);
     } catch (e) {
       _connectionStateController.add(HubConnectionState.Disconnected);
@@ -238,6 +241,27 @@ class SignalRService {
     return map == null ? const GlobalSettings() : GlobalSettings.fromJson(map);
   }
 
+  Future<WebRtcClientConfig> getWebRtcConfig() async {
+    if (_cachedWebRtcConfig != null) {
+      return _cachedWebRtcConfig!;
+    }
+
+    _ensureConnected();
+    try {
+      final result = await _connection!.invoke('GetWebRtcConfig');
+      final map = _asJsonMap(result);
+      final config = map == null
+          ? WebRtcClientConfig.fallback()
+          : WebRtcClientConfig.fromJson(map);
+      _cachedWebRtcConfig = config;
+      return config;
+    } catch (_) {
+      final fallback = WebRtcClientConfig.fallback();
+      _cachedWebRtcConfig = fallback;
+      return fallback;
+    }
+  }
+
   Future<List<NestDevice>> getNestDevices() async {
     _ensureConnected();
     final result = await _connection!.invoke('GetNestDevices');
@@ -327,6 +351,7 @@ class SignalRService {
       debugPrint('Error disconnecting SignalR: $e');
     }
     _connection = null;
+    _cachedWebRtcConfig = null;
     _logSubscription?.cancel();
     _logSubscription = null;
   }

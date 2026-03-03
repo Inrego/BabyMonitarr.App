@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
+import '../models/audio_state.dart';
 import '../models/room.dart';
 import '../providers/audio_provider.dart';
 import '../providers/connection_provider.dart';
@@ -26,8 +27,9 @@ class MonitorDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final connection = context.watch<ConnectionProvider>();
     final audio = context.watch<AudioProvider>();
-    final listening = connection.listeningRoomId == room.id;
-    final muted = connection.isAudioMuted;
+    final roomAudio = audio.snapshotForRoom(room.id);
+    final listening = connection.isListeningToRoom(room.id);
+    final muted = connection.isAudioMutedForRoom(room.id);
     final isLive = listening || videoRenderer?.srcObject != null;
 
     return Scaffold(
@@ -55,7 +57,7 @@ class MonitorDetailScreen extends StatelessWidget {
             const SizedBox(height: 16),
             _buildAudioSection(audio, listening),
             const SizedBox(height: 16),
-            Center(child: StatusPill(alertState: audio.alertState)),
+            Center(child: StatusPill(alertState: roomAudio.alertState)),
             const SizedBox(height: 16),
             _buildControls(context, connection, listening, muted),
           ],
@@ -105,10 +107,14 @@ class MonitorDetailScreen extends StatelessWidget {
 
   Widget _buildAudioSection(AudioProvider audio, bool listening) {
     if (listening) {
+      final roomAudio = audio.snapshotForRoom(room.id);
+      final soundStatus = roomAudio.alertState == AlertState.alerting
+          ? SoundStatus.alert
+          : (roomAudio.currentLevel?.status ?? SoundStatus.quiet);
       return SoundLevelGraph(
-        history: audio.history,
-        currentDisplayLevel: audio.displayLevel,
-        currentStatus: audio.soundStatus,
+        history: roomAudio.history,
+        currentDisplayLevel: roomAudio.currentLevel?.displayLevel ?? 0,
+        currentStatus: soundStatus,
       );
     }
 
@@ -160,7 +166,7 @@ class MonitorDetailScreen extends StatelessWidget {
                       ? Icons.volume_off_outlined
                       : Icons.volume_up_outlined,
                   active: !muted,
-                  onPressed: () => connection.toggleAudioMute(),
+                  onPressed: () => connection.toggleAudioMuteForRoom(room.id),
                 )
               : _controlButton(
                   label: 'Start Listening',
@@ -220,9 +226,9 @@ class MonitorDetailScreen extends StatelessWidget {
       onPressed: () async {
         final connection = context.read<ConnectionProvider>();
         final settings = context.read<SettingsProvider>();
-        if (connection.listeningRoomId == room.id) {
+        if (connection.isListeningToRoom(room.id)) {
           try {
-            await connection.stopListening();
+            await connection.stopListeningToRoom(room.id);
           } catch (e) {
             if (!context.mounted) return;
             ScaffoldMessenger.of(

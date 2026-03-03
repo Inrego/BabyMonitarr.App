@@ -1,16 +1,16 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import '../models/connection_state.dart';
 import '../models/audio_state.dart';
+import '../models/connection_state.dart';
 import '../models/remote_ice_candidate.dart';
 import '../services/audio_session_service.dart';
-import '../services/signalr_service.dart';
-import '../services/webrtc_service.dart';
 import '../services/notification_service.dart';
+import '../services/signalr_service.dart';
 import '../services/vibration_service.dart';
-import '../providers/audio_provider.dart';
-import '../providers/settings_provider.dart';
+import '../services/webrtc_service.dart';
+import 'audio_provider.dart';
+import 'settings_provider.dart';
 
 class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const Duration _watchdogInterval = Duration(seconds: 8);
@@ -20,7 +20,6 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   final AudioSessionService _audioSession;
   final SignalRService _signalR;
-  final WebRtcService _webRtc;
   final NotificationService _notification;
   final VibrationService _vibration;
 
@@ -30,33 +29,21 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _intentionalDisconnect = false;
   bool _isInBackground = false;
   bool _disposed = false;
-  bool _restoringAudioAfterReconnect = false;
-  bool _audioMuted = false;
-  bool _watchdogRecoveryRunning = false;
-  int? _listeningRoomId;
   Future<void> _operationQueue = Future.value();
+
+  final Map<int, _AudioRoomSession> _audioSessions = <int, _AudioRoomSession>{};
   Timer? _watchdogTimer;
-  DateTime? _lastAudioPacketAt;
-  DateTime? _lastMediaHeartbeatAt;
-  DateTime? _signalRDisconnectedAt;
-  DateTime? _lastRecoveryAttemptAt;
 
   StreamSubscription? _signalRStateSub;
   StreamSubscription? _iceCandidateSub;
-  StreamSubscription? _webRtcStateSub;
-  StreamSubscription? _qualitySub;
-  StreamSubscription? _audioLevelSub;
-  StreamSubscription? _soundAlertSub;
 
   ConnectionProvider({
     required AudioSessionService audioSession,
     SignalRService? signalR,
-    WebRtcService? webRtc,
     NotificationService? notification,
     VibrationService? vibration,
   }) : _audioSession = audioSession,
        _signalR = signalR ?? SignalRService(),
-       _webRtc = webRtc ?? WebRtcService(),
        _notification = notification ?? NotificationService(),
        _vibration = vibration ?? VibrationService() {
     _initialize();
@@ -64,16 +51,22 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   ConnectionInfo get connectionInfo => _connectionInfo;
   bool get isConnected => _signalR.isConnected;
-  bool get isListening => _listeningRoomId != null;
-  int? get listeningRoomId => _listeningRoomId;
-  bool get isAudioMuted => _audioMuted;
-  WebRtcService get webRtc => _webRtc;
+  bool get isListening => _audioSessions.isNotEmpty;
+  Set<int> get listeningRoomIds => _audioSessions.keys.toSet();
+
+  // Backward-compatible getters used by existing widgets.
+  int? get listeningRoomId =>
+      _audioSessions.isEmpty ? null : _audioSessions.keys.first;
+  bool get isAudioMuted {
+    final roomId = listeningRoomId;
+    if (roomId == null) return false;
+    return _audioSessions[roomId]?.audioMuted ?? false;
+  }
+
   SignalRService get signalR => _signalR;
 
   Future<void> _initialize() async {
     WidgetsBinding.instance.addObserver(this);
-    _webRtcStateSub = _webRtc.connectionState.listen(_onWebRtcState);
-    _qualitySub = _webRtc.packetLossStream.listen(_onPacketLoss);
     try {
       await _notification.initialize();
       await _vibration.initialize();
@@ -90,7 +83,6 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void setAudioProvider(AudioProvider provider) {
     _audioProvider = provider;
-    _subscribeToAudioStreams();
   }
 
   Future<void> connect(String serverUrl) {
@@ -110,7 +102,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       _updateState(MonitorConnectionState.connecting);
       _cancelSignalRSubscriptions();
 
-      await _safeCloseWebRtc('Connect: failed to close previous WebRTC');
+      await _stopAllListeningInternal(resetAudioProvider: true);
       await _signalR.disconnect();
 
       _signalRStateSub = _signalR.connectionState.listen(_onSignalRState);
@@ -123,20 +115,13 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         _updateState(MonitorConnectionState.failed, error: e.toString());
         rethrow;
       }
-
-      try {
-        final settings = await _signalR.getAudioSettings();
-        _settingsProvider?.updateAudioSettings(settings);
-      } catch (e) {
-        debugPrint('Failed to fetch audio settings: $e');
-      }
     });
   }
 
   Future<void> disconnect() {
     return _runSerialized(() async {
       _intentionalDisconnect = true;
-      await _stopListeningInternal(resetAudioProvider: true);
+      await _stopAllListeningInternal(resetAudioProvider: true);
       _cancelSignalRSubscriptions();
       try {
         await _signalR.disconnect();
@@ -152,6 +137,11 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     });
   }
 
+  bool isListeningToRoom(int roomId) => _audioSessions.containsKey(roomId);
+
+  bool isAudioMutedForRoom(int roomId) =>
+      _audioSessions[roomId]?.audioMuted ?? false;
+
   Future<void> startListeningToRoom(int roomId) {
     return _runSerialized(() async {
       if (_disposed) return;
@@ -163,53 +153,79 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      if (_listeningRoomId == roomId) {
-        await _stopListeningInternal(resetAudioProvider: true);
+      if (_audioSessions.containsKey(roomId)) {
+        await _stopListeningToRoomInternal(roomId, resetAudioProvider: true);
         return;
       }
 
-      await _stopListeningInternal(resetAudioProvider: true);
-      _updateState(MonitorConnectionState.connecting);
+      final session = _createSession(roomId);
+      _audioSessions[roomId] = session;
 
       try {
         await _signalR.selectRoom(roomId);
-        _listeningRoomId = roomId;
-        await _startAudioWebRtcHandshake(roomId);
+        await _startAudioWebRtcHandshake(session);
 
-        _audioMuted = false;
-        _webRtc.setAudioEnabled(true);
-        _markAudioPacketReceived();
+        session.audioMuted = false;
+        session.webRtc.setAudioEnabled(true);
+        _markAudioPacketReceived(session);
         _startWatchdog();
-        await _notification.startMonitoringServiceNotification(roomId: roomId);
+        await _refreshMonitoringNotification();
         unawaited(_notification.requestBatteryOptimizationExemption());
-        _persistActiveListeningRoom(roomId);
+        await _persistActiveListeningRooms();
 
         _updateState(MonitorConnectionState.connected);
         notifyListeners();
       } catch (e) {
-        _listeningRoomId = null;
-        _stopWatchdog();
-        _persistActiveListeningRoom(null);
-        await _notification.stopMonitoringServiceNotification();
+        await _disposeSession(roomId);
+        _audioSessions.remove(roomId);
+        await _refreshMonitoringNotification();
+        await _persistActiveListeningRooms();
         _updateState(
           MonitorConnectionState.failed,
-          error: 'Failed to start audio stream: $e',
+          error: 'Failed to start audio stream for room $roomId: $e',
         );
         rethrow;
       }
     });
   }
 
-  Future<void> stopListening() {
+  Future<void> stopListeningToRoom(int roomId) {
     return _runSerialized(
-      () => _stopListeningInternal(resetAudioProvider: true),
+      () => _stopListeningToRoomInternal(roomId, resetAudioProvider: true),
     );
   }
 
+  Future<void> stopListening() {
+    final roomId = listeningRoomId;
+    if (roomId == null) return Future.value();
+    return stopListeningToRoom(roomId);
+  }
+
+  Future<void> stopAllListening() {
+    return _runSerialized(
+      () => _stopAllListeningInternal(resetAudioProvider: true),
+    );
+  }
+
+  Future<void> toggleAudioMuteForRoom(int roomId) async {
+    final session = _audioSessions[roomId];
+    if (session == null) return;
+    session.audioMuted = !session.audioMuted;
+    session.webRtc.setAudioEnabled(!session.audioMuted);
+    notifyListeners();
+  }
+
   Future<void> toggleAudioMute() async {
-    if (_listeningRoomId == null) return;
-    _audioMuted = !_audioMuted;
-    _webRtc.setAudioEnabled(!_audioMuted);
+    final roomId = listeningRoomId;
+    if (roomId == null) return;
+    await toggleAudioMuteForRoom(roomId);
+  }
+
+  void setAudioEnabledForAll(bool enabled) {
+    for (final session in _audioSessions.values) {
+      session.audioMuted = !enabled;
+      session.webRtc.setAudioEnabled(enabled);
+    }
     notifyListeners();
   }
 
@@ -222,65 +238,110 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _startAudioWebRtcHandshake(int roomId) async {
-    await _audioSession.ensureConfigured();
-    final sdpOffer = await _signalR.startAudioStream(roomId);
-    final sdpAnswer = await _webRtc.handleOffer(
-      sdpOffer,
-      onIceCandidate: _onLocalIceCandidate,
+  _AudioRoomSession _createSession(int roomId) {
+    final webRtc = WebRtcService();
+    final session = _AudioRoomSession(roomId: roomId, webRtc: webRtc);
+
+    session.webRtcStateSub = webRtc.connectionState.listen(
+      (state) => _onWebRtcState(roomId, state),
     );
-    await _signalR.setAudioRemoteDescription(roomId, 'answer', sdpAnswer);
-    _subscribeToAudioStreams();
+    session.qualitySub = webRtc.packetLossStream.listen(
+      (loss) => _onPacketLoss(roomId, loss),
+    );
+    session.audioLevelSub = webRtc.dataChannelHandler.audioLevels.listen((
+      level,
+    ) {
+      _markAudioPacketReceived(session);
+      _audioProvider?.onAudioLevelForRoom(roomId, level);
+    });
+    session.soundAlertSub = webRtc.dataChannelHandler.soundAlerts.listen((
+      alert,
+    ) {
+      _markAudioPacketReceived(session);
+      _audioProvider?.onSoundAlertForRoom(roomId, alert);
+      _handleSoundAlert(alert);
+    });
+
+    return session;
+  }
+
+  Future<void> _startAudioWebRtcHandshake(_AudioRoomSession session) async {
+    await _audioSession.ensureConfigured();
+    final rtcConfig = await _signalR.getWebRtcConfig();
+    final sdpOffer = await _signalR.startAudioStream(session.roomId);
+    final sdpAnswer = await session.webRtc.handleOffer(
+      sdpOffer,
+      onIceCandidate: (candidate) =>
+          _onLocalIceCandidate(session.roomId, candidate),
+      clientConfig: rtcConfig,
+    );
+    await _signalR.setAudioRemoteDescription(
+      session.roomId,
+      'answer',
+      sdpAnswer,
+    );
     await _audioSession.ensureConfigured();
   }
 
-  Future<void> _stopListeningInternal({
+  Future<void> _stopListeningToRoomInternal(
+    int roomId, {
     required bool resetAudioProvider,
   }) async {
-    _stopWatchdog();
+    final session = _audioSessions[roomId];
+    if (session == null) return;
 
-    final roomId = _listeningRoomId;
     try {
-      if (roomId != null) {
-        await _signalR.stopAudioStream(roomId);
-      }
+      await _signalR.stopAudioStream(roomId);
     } catch (e) {
-      debugPrint('Stop listening: failed to stop server stream: $e');
+      debugPrint(
+        'Stop listening room $roomId: failed to stop server stream: $e',
+      );
     }
 
-    await _safeCloseWebRtc('Stop listening: failed to close WebRTC');
-    if (roomId != null) {
+    await _disposeSession(roomId);
+    _audioSessions.remove(roomId);
+
+    if (_audioSessions.isEmpty) {
       try {
         await Helper.clearAndroidCommunicationDevice();
       } catch (e) {
         debugPrint('Stop listening: failed to clear Android audio device: $e');
       }
     }
-    _listeningRoomId = null;
-    _audioMuted = false;
-    _persistActiveListeningRoom(null);
-    await _notification.stopMonitoringServiceNotification();
-    await _notification.clearMonitoringDisconnectedNotification();
+
     if (resetAudioProvider) {
-      _audioProvider?.reset();
+      _audioProvider?.resetRoom(roomId);
     }
+
+    await _persistActiveListeningRooms();
+    await _refreshMonitoringNotification();
+    _updateState(
+      _audioSessions.isEmpty
+          ? MonitorConnectionState.connected
+          : _connectionInfo.state,
+    );
     notifyListeners();
   }
 
-  void _subscribeToAudioStreams() {
-    _audioLevelSub?.cancel();
-    _soundAlertSub?.cancel();
+  Future<void> _stopAllListeningInternal({
+    required bool resetAudioProvider,
+  }) async {
+    final roomIds = _audioSessions.keys.toList(growable: false);
+    for (final roomId in roomIds) {
+      await _stopListeningToRoomInternal(
+        roomId,
+        resetAudioProvider: resetAudioProvider,
+      );
+    }
+    if (resetAudioProvider) {
+      _audioProvider?.resetAll();
+    }
+  }
 
-    _audioLevelSub = _webRtc.dataChannelHandler.audioLevels.listen((level) {
-      _markAudioPacketReceived();
-      _audioProvider?.onAudioLevel(level);
-    });
-
-    _soundAlertSub = _webRtc.dataChannelHandler.soundAlerts.listen((alert) {
-      _markAudioPacketReceived();
-      _audioProvider?.onSoundAlert(alert);
-      _handleSoundAlert(alert);
-    });
+  Future<void> _disposeSession(int roomId) async {
+    final session = _audioSessions[roomId];
+    if (session == null) return;
+    await session.dispose();
   }
 
   void _handleSoundAlert(SoundAlert alert) {
@@ -296,21 +357,40 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  void _persistActiveListeningRoom(int? roomId) {
+  Future<void> _persistActiveListeningRooms() async {
     final settings = _settingsProvider;
     if (settings == null) return;
-    unawaited(
-      settings.setActiveListeningRoomId(roomId).catchError((Object e) {
-        debugPrint('Failed to persist active listening room id: $e');
-      }),
+    try {
+      await settings.setActiveListeningRoomIds(_audioSessions.keys.toSet());
+    } catch (e) {
+      debugPrint('Failed to persist active listening room ids: $e');
+    }
+  }
+
+  Future<void> _refreshMonitoringNotification({
+    bool reconnecting = false,
+  }) async {
+    final roomCount = _audioSessions.length;
+    if (roomCount == 0) {
+      _stopWatchdog();
+      await _notification.stopMonitoringServiceNotification();
+      await _notification.clearMonitoringDisconnectedNotification();
+      return;
+    }
+
+    final onlyRoomId = roomCount == 1 ? _audioSessions.keys.first : null;
+    await _notification.startMonitoringServiceNotification(
+      reconnecting: reconnecting,
+      roomId: onlyRoomId,
+      roomCount: roomCount,
     );
   }
 
-  void _markAudioPacketReceived() {
+  void _markAudioPacketReceived(_AudioRoomSession session) {
     final now = DateTime.now();
-    _lastAudioPacketAt = now;
-    _lastMediaHeartbeatAt = now;
-    _signalRDisconnectedAt = null;
+    session.lastAudioPacketAt = now;
+    session.lastMediaHeartbeatAt = now;
+    session.signalRDisconnectedAt = null;
   }
 
   void _startWatchdog() {
@@ -324,81 +404,90 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _stopWatchdog() {
     _watchdogTimer?.cancel();
     _watchdogTimer = null;
-    _watchdogRecoveryRunning = false;
-    _lastAudioPacketAt = null;
-    _lastMediaHeartbeatAt = null;
-    _signalRDisconnectedAt = null;
-    _lastRecoveryAttemptAt = null;
   }
 
   Future<void> _onWatchdogTick() async {
     if (_disposed || _intentionalDisconnect) return;
-    final roomId = _listeningRoomId;
-    if (roomId == null) return;
+    if (_audioSessions.isEmpty) {
+      _stopWatchdog();
+      return;
+    }
 
     final now = DateTime.now();
-    final needsRecovery = _shouldRecoverFromWatchdog(now);
-    await _notification.startMonitoringServiceNotification(
-      reconnecting: needsRecovery,
-      roomId: roomId,
-    );
+    final recoverRooms = <int>[];
+    for (final session in _audioSessions.values) {
+      final shouldRecover = _shouldRecoverFromWatchdog(session, now);
+      if (shouldRecover) {
+        recoverRooms.add(session.roomId);
+      }
+    }
 
-    if (!needsRecovery) {
-      _signalRDisconnectedAt = null;
+    await _refreshMonitoringNotification(reconnecting: recoverRooms.isNotEmpty);
+
+    if (recoverRooms.isEmpty) {
       await _notification.clearMonitoringDisconnectedNotification();
       return;
     }
 
-    final disconnectedAt = _signalRDisconnectedAt;
-    if (disconnectedAt != null &&
-        now.difference(disconnectedAt) >= _disconnectAlertThreshold) {
-      await _notification.showMonitoringDisconnectedNotification(
-        roomId: roomId,
-      );
+    final oldestDisconnected = _audioSessions.values
+        .map((s) => s.signalRDisconnectedAt)
+        .whereType<DateTime>()
+        .fold<DateTime?>(null, (current, next) {
+          if (current == null) return next;
+          return next.isBefore(current) ? next : current;
+        });
+
+    if (oldestDisconnected != null &&
+        now.difference(oldestDisconnected) >= _disconnectAlertThreshold) {
+      await _notification.showMonitoringDisconnectedNotification();
     }
 
-    await _recoverFromWatchdog(roomId);
+    for (final roomId in recoverRooms) {
+      await _recoverFromWatchdog(roomId);
+    }
   }
 
-  bool _shouldRecoverFromWatchdog(DateTime now) {
+  bool _shouldRecoverFromWatchdog(_AudioRoomSession session, DateTime now) {
     if (!_signalR.isConnected ||
         _connectionInfo.state == MonitorConnectionState.failed ||
         _connectionInfo.state == MonitorConnectionState.reconnecting) {
-      _signalRDisconnectedAt ??= now;
+      session.signalRDisconnectedAt ??= now;
       return true;
     }
 
-    DateTime? heartbeat = _lastMediaHeartbeatAt;
-    final audio = _lastAudioPacketAt;
+    DateTime? heartbeat = session.lastMediaHeartbeatAt;
+    final audio = session.lastAudioPacketAt;
     if (heartbeat == null || (audio != null && audio.isAfter(heartbeat))) {
       heartbeat = audio;
     }
     if (heartbeat == null) {
-      _signalRDisconnectedAt ??= now;
+      session.signalRDisconnectedAt ??= now;
       return true;
     }
 
     final isStalled = now.difference(heartbeat) >= _audioStallThreshold;
     if (isStalled) {
-      _signalRDisconnectedAt ??= now;
+      session.signalRDisconnectedAt ??= now;
     }
     return isStalled;
   }
 
   Future<void> _recoverFromWatchdog(int roomId) async {
-    if (_watchdogRecoveryRunning) return;
+    final session = _audioSessions[roomId];
+    if (session == null) return;
+    if (session.watchdogRecoveryRunning) return;
     final now = DateTime.now();
-    if (_lastRecoveryAttemptAt != null &&
-        now.difference(_lastRecoveryAttemptAt!) < _minimumRecoveryGap) {
+    if (session.lastRecoveryAttemptAt != null &&
+        now.difference(session.lastRecoveryAttemptAt!) < _minimumRecoveryGap) {
       return;
     }
 
-    _watchdogRecoveryRunning = true;
-    _lastRecoveryAttemptAt = now;
+    session.watchdogRecoveryRunning = true;
+    session.lastRecoveryAttemptAt = now;
     try {
       await _runSerialized(() async {
         if (_disposed || _intentionalDisconnect) return;
-        if (_listeningRoomId != roomId) return;
+        if (!_audioSessions.containsKey(roomId)) return;
 
         await _audioSession.ensureConfigured();
 
@@ -413,8 +502,6 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
           }
 
           _ensureSignalRSubscriptions();
-          await _safeCloseWebRtc('Watchdog reconnect: failed to close WebRTC');
-
           try {
             await _signalR.disconnect();
           } catch (e) {
@@ -424,20 +511,25 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
           await _signalR.connect(SignalRService.normalizeServerUrl(serverUrl));
         }
 
+        final current = _audioSessions[roomId];
+        if (current == null) return;
         await _signalR.selectRoom(roomId);
-        await _startAudioWebRtcHandshake(roomId);
-        _webRtc.setAudioEnabled(!_audioMuted);
-        _markAudioPacketReceived();
-        _persistActiveListeningRoom(roomId);
+        await current.webRtc.close();
+        await _startAudioWebRtcHandshake(current);
+        current.webRtc.setAudioEnabled(!current.audioMuted);
+        _markAudioPacketReceived(current);
         _updateState(MonitorConnectionState.connected);
       });
     } catch (e) {
       _updateState(
         MonitorConnectionState.failed,
-        error: 'Automatic recovery failed: $e',
+        error: 'Automatic recovery failed for room $roomId: $e',
       );
     } finally {
-      _watchdogRecoveryRunning = false;
+      final current = _audioSessions[roomId];
+      if (current != null) {
+        current.watchdogRecoveryRunning = false;
+      }
     }
   }
 
@@ -449,101 +541,101 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _onSignalRState(dynamic state) {
     if (_disposed || _intentionalDisconnect) return;
     final stateLabel = state.toString().toLowerCase();
-    final roomId = _listeningRoomId;
 
     if (stateLabel.contains('reconnecting')) {
-      _signalRDisconnectedAt ??= DateTime.now();
-      _updateState(MonitorConnectionState.reconnecting);
-      if (roomId != null) {
-        unawaited(
-          _notification.startMonitoringServiceNotification(
-            reconnecting: true,
-            roomId: roomId,
-          ),
-        );
+      for (final session in _audioSessions.values) {
+        session.signalRDisconnectedAt ??= DateTime.now();
       }
+      _updateState(MonitorConnectionState.reconnecting);
+      unawaited(_refreshMonitoringNotification(reconnecting: true));
       return;
     }
 
     if (stateLabel.contains('disconnected')) {
-      _signalRDisconnectedAt ??= DateTime.now();
+      for (final session in _audioSessions.values) {
+        session.signalRDisconnectedAt ??= DateTime.now();
+      }
       _updateState(
         MonitorConnectionState.failed,
         error: 'SignalR disconnected',
       );
-      if (roomId != null) {
+      if (_audioSessions.isNotEmpty) {
         _startWatchdog();
       }
       return;
     }
 
     if (stateLabel.contains('connected')) {
-      _signalRDisconnectedAt = null;
+      for (final session in _audioSessions.values) {
+        session.signalRDisconnectedAt = null;
+      }
       _updateState(MonitorConnectionState.connected);
-      if (roomId != null) {
+      if (_audioSessions.isNotEmpty) {
         _startWatchdog();
-        unawaited(
-          _notification.startMonitoringServiceNotification(
-            reconnecting: false,
-            roomId: roomId,
-          ),
-        );
+        unawaited(_refreshMonitoringNotification(reconnecting: false));
         unawaited(_notification.clearMonitoringDisconnectedNotification());
-        if (!_watchdogRecoveryRunning) {
-          unawaited(_restoreAudioAfterReconnect(roomId));
-        }
+        unawaited(_restoreAudioAfterReconnect());
       }
     }
   }
 
-  Future<void> _restoreAudioAfterReconnect(int roomId) async {
-    if (_restoringAudioAfterReconnect || _intentionalDisconnect || _disposed) {
-      return;
-    }
-    _restoringAudioAfterReconnect = true;
-    try {
-      await _runSerialized(() async {
-        if (!_signalR.isConnected || _intentionalDisconnect || _disposed) {
-          return;
-        }
-        await _signalR.selectRoom(roomId);
-        await _startAudioWebRtcHandshake(roomId);
-        _webRtc.setAudioEnabled(!_audioMuted);
-        _markAudioPacketReceived();
-        _persistActiveListeningRoom(roomId);
-        _startWatchdog();
-        await _notification.startMonitoringServiceNotification(roomId: roomId);
-        await _notification.clearMonitoringDisconnectedNotification();
-      });
-    } catch (e) {
-      _updateState(
-        MonitorConnectionState.failed,
-        error: 'Failed restoring audio: $e',
-      );
-    } finally {
-      _restoringAudioAfterReconnect = false;
+  Future<void> _restoreAudioAfterReconnect() async {
+    final roomIds = _audioSessions.keys.toList(growable: false);
+    for (final roomId in roomIds) {
+      final session = _audioSessions[roomId];
+      if (session == null) continue;
+      if (session.restoringAudioAfterReconnect ||
+          session.watchdogRecoveryRunning) {
+        continue;
+      }
+
+      session.restoringAudioAfterReconnect = true;
+      try {
+        await _runSerialized(() async {
+          if (!_signalR.isConnected || _intentionalDisconnect || _disposed) {
+            return;
+          }
+          if (!_audioSessions.containsKey(roomId)) return;
+          await _signalR.selectRoom(roomId);
+          await session.webRtc.close();
+          await _startAudioWebRtcHandshake(session);
+          session.webRtc.setAudioEnabled(!session.audioMuted);
+          _markAudioPacketReceived(session);
+          await _refreshMonitoringNotification();
+          await _notification.clearMonitoringDisconnectedNotification();
+        });
+      } catch (e) {
+        _updateState(
+          MonitorConnectionState.failed,
+          error: 'Failed restoring audio for room $roomId: $e',
+        );
+      } finally {
+        session.restoringAudioAfterReconnect = false;
+      }
     }
   }
 
-  void _onWebRtcState(RTCPeerConnectionState state) {
+  void _onWebRtcState(int roomId, RTCPeerConnectionState state) {
     if (_disposed || _intentionalDisconnect) return;
+    final session = _audioSessions[roomId];
+    if (session == null) return;
+
     switch (state) {
       case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
-        _markAudioPacketReceived();
-        _signalRDisconnectedAt = null;
+        _markAudioPacketReceived(session);
+        session.signalRDisconnectedAt = null;
         _updateState(MonitorConnectionState.connected);
         break;
       case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
       case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
       case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
-        _signalRDisconnectedAt ??= DateTime.now();
-        if (_listeningRoomId != null && _signalR.isConnected) {
+        session.signalRDisconnectedAt ??= DateTime.now();
+        if (_signalR.isConnected) {
           _updateState(
             MonitorConnectionState.failed,
-            error: 'WebRTC state: ${state.name}',
+            error: 'WebRTC state for room $roomId: ${state.name}',
           );
           _startWatchdog();
-          unawaited(_restoreAudioAfterReconnect(_listeningRoomId!));
         }
         break;
       default:
@@ -551,9 +643,11 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  void _onPacketLoss(double lossPercent) {
-    if (_disposed) return;
-    _lastMediaHeartbeatAt = DateTime.now();
+  void _onPacketLoss(int roomId, double lossPercent) {
+    final session = _audioSessions[roomId];
+    if (session == null || _disposed) return;
+    session.lastMediaHeartbeatAt = DateTime.now();
+
     ConnectionQuality quality;
     if (lossPercent < 1) {
       quality = ConnectionQuality.strong;
@@ -573,18 +667,19 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _recoverAudioSessionAfterResume() async {
-    final roomId = _listeningRoomId;
-    if (roomId == null || !_signalR.isConnected || _disposed) {
+    if (_audioSessions.isEmpty || !_signalR.isConnected || _disposed) {
       return;
     }
 
     await _runSerialized(() async {
       if (_disposed || _intentionalDisconnect) return;
-      if (_listeningRoomId != roomId || !_signalR.isConnected) return;
+      if (!_signalR.isConnected) return;
 
       try {
         await _audioSession.ensureConfigured();
-        _webRtc.setAudioEnabled(!_audioMuted);
+        for (final session in _audioSessions.values) {
+          session.webRtc.setAudioEnabled(!session.audioMuted);
+        }
       } catch (e) {
         debugPrint('Failed to recover audio session on resume: $e');
       }
@@ -593,11 +688,12 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void _onRemoteIceCandidate(RemoteIceCandidate candidate) {
     if (_intentionalDisconnect || _disposed) return;
-    if (_listeningRoomId == null || candidate.roomId != _listeningRoomId) {
+    final session = _audioSessions[candidate.roomId];
+    if (session == null) {
       return;
     }
     unawaited(
-      _webRtc.addIceCandidate(
+      session.webRtc.addIceCandidate(
         candidate.candidate,
         candidate.sdpMid,
         candidate.sdpMLineIndex,
@@ -605,9 +701,9 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
-  void _onLocalIceCandidate(RTCIceCandidate candidate) {
-    final roomId = _listeningRoomId;
-    if (roomId == null) return;
+  void _onLocalIceCandidate(int roomId, RTCIceCandidate candidate) {
+    final session = _audioSessions[roomId];
+    if (session == null) return;
 
     final rawCandidate = candidate.candidate;
     if (rawCandidate == null || rawCandidate.trim().isEmpty) return;
@@ -622,17 +718,11 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
             candidate.sdpMLineIndex,
           )
           .catchError((Object e) {
-            debugPrint('Failed to send local ICE candidate: $e');
+            debugPrint(
+              'Failed to send local ICE candidate for room $roomId: $e',
+            );
           }),
     );
-  }
-
-  Future<void> _safeCloseWebRtc(String context) async {
-    try {
-      await _webRtc.close();
-    } catch (e) {
-      debugPrint('$context: $e');
-    }
   }
 
   Future<void> _runSerialized(Future<void> Function() action) {
@@ -658,18 +748,6 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     _iceCandidateSub = null;
   }
 
-  void _cancelAllSubscriptions() {
-    _cancelSignalRSubscriptions();
-    _webRtcStateSub?.cancel();
-    _webRtcStateSub = null;
-    _qualitySub?.cancel();
-    _qualitySub = null;
-    _audioLevelSub?.cancel();
-    _audioLevelSub = null;
-    _soundAlertSub?.cancel();
-    _soundAlertSub = null;
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_disposed) return;
@@ -680,17 +758,12 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         if (isListening) {
           _startWatchdog();
           unawaited(
-            _notification
-                .startMonitoringServiceNotification(
-                  reconnecting:
-                      _connectionInfo.state != MonitorConnectionState.connected,
-                  roomId: _listeningRoomId,
-                )
-                .catchError((e) {
-                  debugPrint(
-                    'Failed to start monitoring foreground service: $e',
-                  );
-                }),
+            _refreshMonitoringNotification(
+              reconnecting:
+                  _connectionInfo.state != MonitorConnectionState.connected,
+            ).catchError((e) {
+              debugPrint('Failed to start monitoring foreground service: $e');
+            }),
           );
         }
         break;
@@ -698,14 +771,11 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         _isInBackground = false;
         if (isListening) {
           unawaited(
-            _notification
-                .startMonitoringServiceNotification(roomId: _listeningRoomId)
-                .catchError((e) {
-                  debugPrint(
-                    'Failed to refresh monitoring foreground service: $e',
-                  );
-                }),
+            _refreshMonitoringNotification().catchError((e) {
+              debugPrint('Failed to refresh monitoring foreground service: $e');
+            }),
           );
+          unawaited(_recoverAudioSessionAfterResume());
         } else {
           unawaited(_notification.stopMonitoringServiceNotification());
         }
@@ -715,15 +785,12 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         if (isListening) {
           _startWatchdog();
           unawaited(
-            _notification
-                .startMonitoringServiceNotification(
-                  reconnecting:
-                      _connectionInfo.state != MonitorConnectionState.connected,
-                  roomId: _listeningRoomId,
-                )
-                .catchError((e) {
-                  debugPrint('Failed to keep monitoring service on detach: $e');
-                }),
+            _refreshMonitoringNotification(
+              reconnecting:
+                  _connectionInfo.state != MonitorConnectionState.connected,
+            ).catchError((e) {
+              debugPrint('Failed to keep monitoring service on detach: $e');
+            }),
           );
         }
         break;
@@ -738,9 +805,42 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _stopWatchdog();
     unawaited(_notification.stopMonitoringServiceNotification());
-    _cancelAllSubscriptions();
+    _cancelSignalRSubscriptions();
+    for (final session in _audioSessions.values) {
+      unawaited(session.dispose());
+    }
+    _audioSessions.clear();
     _signalR.dispose();
-    _webRtc.dispose();
     super.dispose();
+  }
+}
+
+class _AudioRoomSession {
+  final int roomId;
+  final WebRtcService webRtc;
+
+  bool restoringAudioAfterReconnect = false;
+  bool watchdogRecoveryRunning = false;
+  bool audioMuted = false;
+
+  DateTime? lastAudioPacketAt;
+  DateTime? lastMediaHeartbeatAt;
+  DateTime? signalRDisconnectedAt;
+  DateTime? lastRecoveryAttemptAt;
+
+  StreamSubscription? webRtcStateSub;
+  StreamSubscription? qualitySub;
+  StreamSubscription? audioLevelSub;
+  StreamSubscription? soundAlertSub;
+
+  _AudioRoomSession({required this.roomId, required this.webRtc});
+
+  Future<void> dispose() async {
+    await webRtcStateSub?.cancel();
+    await qualitySub?.cancel();
+    await audioLevelSub?.cancel();
+    await soundAlertSub?.cancel();
+    await webRtc.close();
+    webRtc.dispose();
   }
 }

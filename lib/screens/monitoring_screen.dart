@@ -84,7 +84,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     setState(() {
       _listeningIn = !_listeningIn;
     });
-    connection.webRtc.setAudioEnabled(_listeningIn);
+    connection.setAudioEnabledForAll(_listeningIn);
   }
 
   String _formatTime() {

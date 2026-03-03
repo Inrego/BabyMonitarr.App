@@ -10,6 +10,10 @@ class Room {
   final String? cameraPassword;
   final String streamSourceType;
   final String? nestDeviceId;
+  final String? videoSourceCodecName;
+  final String? videoPassthroughCodec;
+  final String? videoCodecFailureReason;
+  final DateTime? videoCodecCheckedAtUtc;
   final bool isActive;
   final DateTime? createdAt;
 
@@ -25,6 +29,10 @@ class Room {
     this.cameraPassword,
     this.streamSourceType = 'rtsp',
     this.nestDeviceId,
+    this.videoSourceCodecName,
+    this.videoPassthroughCodec,
+    this.videoCodecFailureReason,
+    this.videoCodecCheckedAtUtc,
     this.isActive = false,
     this.createdAt,
   });
@@ -42,6 +50,12 @@ class Room {
       cameraPassword: json['cameraPassword'] as String?,
       streamSourceType: (json['streamSourceType'] as String?) ?? 'rtsp',
       nestDeviceId: json['nestDeviceId'] as String?,
+      videoSourceCodecName: json['videoSourceCodecName'] as String?,
+      videoPassthroughCodec: json['videoPassthroughCodec'] as String?,
+      videoCodecFailureReason: json['videoCodecFailureReason'] as String?,
+      videoCodecCheckedAtUtc: json['videoCodecCheckedAtUtc'] is String
+          ? DateTime.tryParse(json['videoCodecCheckedAtUtc'] as String)
+          : null,
       isActive: json['isActive'] as bool? ?? false,
       createdAt: json['createdAt'] is String
           ? DateTime.tryParse(json['createdAt'] as String)
@@ -62,6 +76,10 @@ class Room {
       'cameraPassword': cameraPassword ?? '',
       'streamSourceType': streamSourceType,
       'nestDeviceId': nestDeviceId ?? '',
+      'videoSourceCodecName': videoSourceCodecName,
+      'videoPassthroughCodec': videoPassthroughCodec,
+      'videoCodecFailureReason': videoCodecFailureReason,
+      'videoCodecCheckedAtUtc': videoCodecCheckedAtUtc?.toIso8601String(),
       'isActive': isActive,
     };
   }
@@ -78,6 +96,10 @@ class Room {
     String? cameraPassword,
     String? streamSourceType,
     String? nestDeviceId,
+    String? videoSourceCodecName,
+    String? videoPassthroughCodec,
+    String? videoCodecFailureReason,
+    DateTime? videoCodecCheckedAtUtc,
     bool? isActive,
     DateTime? createdAt,
   }) {
@@ -93,6 +115,13 @@ class Room {
       cameraPassword: cameraPassword ?? this.cameraPassword,
       streamSourceType: streamSourceType ?? this.streamSourceType,
       nestDeviceId: nestDeviceId ?? this.nestDeviceId,
+      videoSourceCodecName: videoSourceCodecName ?? this.videoSourceCodecName,
+      videoPassthroughCodec:
+          videoPassthroughCodec ?? this.videoPassthroughCodec,
+      videoCodecFailureReason:
+          videoCodecFailureReason ?? this.videoCodecFailureReason,
+      videoCodecCheckedAtUtc:
+          videoCodecCheckedAtUtc ?? this.videoCodecCheckedAtUtc,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
     );

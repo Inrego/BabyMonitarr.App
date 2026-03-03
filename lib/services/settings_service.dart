@@ -10,6 +10,7 @@ class SettingsService {
   static const _keyAlertVolume = 'alert_volume';
   static const _keyMonitoringRoomIds = 'monitoring_room_ids';
   static const _keyActiveListeningRoomId = 'active_listening_room_id';
+  static const _keyActiveListeningRoomIds = 'active_listening_room_ids';
 
   final FlutterSecureStorage _storage;
 
@@ -79,17 +80,42 @@ class SettingsService {
     await _storage.write(key: _keyMonitoringRoomIds, value: ids.join(','));
   }
 
-  Future<int?> loadActiveListeningRoomId() async {
-    final raw = await _storage.read(key: _keyActiveListeningRoomId);
-    if (raw == null || raw.trim().isEmpty) return null;
-    return int.tryParse(raw.trim());
+  Future<Set<int>> loadActiveListeningRoomIds() async {
+    final raw = await _storage.read(key: _keyActiveListeningRoomIds);
+    if (raw != null && raw.trim().isNotEmpty) {
+      return raw
+          .split(',')
+          .map((s) => int.tryParse(s.trim()))
+          .whereType<int>()
+          .toSet();
+    }
+
+    // Migration from older single-room key.
+    final legacyRaw = await _storage.read(key: _keyActiveListeningRoomId);
+    if (legacyRaw == null || legacyRaw.trim().isEmpty) {
+      return {};
+    }
+    final legacyId = int.tryParse(legacyRaw.trim());
+    if (legacyId == null) {
+      return {};
+    }
+    final migrated = <int>{legacyId};
+    await saveActiveListeningRoomIds(migrated);
+    await _storage.delete(key: _keyActiveListeningRoomId);
+    return migrated;
   }
 
-  Future<void> saveActiveListeningRoomId(int? roomId) async {
-    if (roomId == null) {
+  Future<void> saveActiveListeningRoomIds(Set<int> roomIds) async {
+    if (roomIds.isEmpty) {
+      await _storage.delete(key: _keyActiveListeningRoomIds);
       await _storage.delete(key: _keyActiveListeningRoomId);
       return;
     }
-    await _storage.write(key: _keyActiveListeningRoomId, value: '$roomId');
+
+    await _storage.write(
+      key: _keyActiveListeningRoomIds,
+      value: roomIds.join(','),
+    );
+    await _storage.delete(key: _keyActiveListeningRoomId);
   }
 }

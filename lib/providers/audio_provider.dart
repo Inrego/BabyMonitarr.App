@@ -8,83 +8,115 @@ class AudioProvider extends ChangeNotifier {
   static const Duration _alertAutoClearDuration = Duration(seconds: 10);
   static const int _historyIntervalMs = 500;
 
-  AudioSnapshot _snapshot = const AudioSnapshot();
-  Timer? _alertClearTimer;
-  int _lastHistoryTimestamp = 0;
-  AudioLevel? _pendingPeak;
+  final Map<int, AudioSnapshot> _snapshots = <int, AudioSnapshot>{};
+  final Map<int, Timer> _alertClearTimers = <int, Timer>{};
+  final Map<int, int> _lastHistoryTimestamp = <int, int>{};
+  final Map<int, AudioLevel?> _pendingPeak = <int, AudioLevel?>{};
 
-  AudioSnapshot get snapshot => _snapshot;
-  AudioLevel? get currentLevel => _snapshot.currentLevel;
-  AlertState get alertState => _snapshot.alertState;
-  SoundAlert? get lastAlert => _snapshot.lastAlert;
-  List<AudioLevel> get history => _snapshot.history;
-
-  double get displayLevel => _snapshot.currentLevel?.displayLevel ?? 0;
-
-  SoundStatus get soundStatus {
-    if (_snapshot.alertState == AlertState.alerting) {
-      return SoundStatus.alert;
-    }
-    return _snapshot.currentLevel?.status ?? SoundStatus.quiet;
+  AudioSnapshot snapshotForRoom(int roomId) {
+    return _snapshots[roomId] ?? const AudioSnapshot();
   }
 
-  void onAudioLevel(AudioLevel level) {
-    // Track the loudest sample in the current window.
-    if (_pendingPeak == null ||
-        level.displayLevel > _pendingPeak!.displayLevel) {
-      _pendingPeak = level;
+  // Backward-compatible aggregate getters for legacy single-room widgets.
+  AudioSnapshot get snapshot =>
+      _snapshots.isNotEmpty ? _snapshots.values.first : const AudioSnapshot();
+  AudioLevel? get currentLevel => snapshot.currentLevel;
+  AlertState get alertState => snapshot.alertState;
+  SoundAlert? get lastAlert => snapshot.lastAlert;
+  List<AudioLevel> get history => snapshot.history;
+  double get displayLevel => snapshot.currentLevel?.displayLevel ?? 0;
+
+  SoundStatus get soundStatus {
+    if (snapshot.alertState == AlertState.alerting) {
+      return SoundStatus.alert;
+    }
+    return snapshot.currentLevel?.status ?? SoundStatus.quiet;
+  }
+
+  void onAudioLevelForRoom(int roomId, AudioLevel level) {
+    final previous = _snapshots[roomId] ?? const AudioSnapshot();
+
+    final previousPeak = _pendingPeak[roomId];
+    if (previousPeak == null ||
+        level.displayLevel > previousPeak.displayLevel) {
+      _pendingPeak[roomId] = level;
     }
 
-    // Only append to history every _historyIntervalMs to avoid filling the
-    // buffer in ~30 s when samples arrive at ~20/s.
     List<AudioLevel>? updatedHistory;
-    if (level.timestamp - _lastHistoryTimestamp >= _historyIntervalMs) {
+    final lastHistoryAt = _lastHistoryTimestamp[roomId] ?? 0;
+    if (level.timestamp - lastHistoryAt >= _historyIntervalMs) {
       final cutoff =
           DateTime.now().millisecondsSinceEpoch -
           _historyDuration.inMilliseconds;
       updatedHistory = [
-        ..._snapshot.history.where((e) => e.timestamp >= cutoff),
-        _pendingPeak!,
+        ...previous.history.where((e) => e.timestamp >= cutoff),
+        _pendingPeak[roomId]!,
       ];
       if (updatedHistory.length > _maxHistorySize) {
         updatedHistory.removeRange(0, updatedHistory.length - _maxHistorySize);
       }
-      _lastHistoryTimestamp = level.timestamp;
-      _pendingPeak = null;
+      _lastHistoryTimestamp[roomId] = level.timestamp;
+      _pendingPeak[roomId] = null;
     }
 
-    _snapshot = _snapshot.copyWith(
+    _snapshots[roomId] = previous.copyWith(
       currentLevel: level,
-      history: updatedHistory ?? _snapshot.history,
+      history: updatedHistory ?? previous.history,
     );
     notifyListeners();
   }
 
-  void onSoundAlert(SoundAlert alert) {
-    _alertClearTimer?.cancel();
-    _snapshot = _snapshot.copyWith(
+  void onSoundAlertForRoom(int roomId, SoundAlert alert) {
+    _alertClearTimers.remove(roomId)?.cancel();
+
+    final previous = _snapshots[roomId] ?? const AudioSnapshot();
+    _snapshots[roomId] = previous.copyWith(
       alertState: AlertState.alerting,
       lastAlert: alert,
     );
     notifyListeners();
 
-    _alertClearTimer = Timer(_alertAutoClearDuration, () {
-      _snapshot = _snapshot.copyWith(alertState: AlertState.watching);
+    _alertClearTimers[roomId] = Timer(_alertAutoClearDuration, () {
+      final current = _snapshots[roomId];
+      if (current == null) return;
+      _snapshots[roomId] = current.copyWith(alertState: AlertState.watching);
       notifyListeners();
     });
   }
 
-  void reset() {
-    _alertClearTimer?.cancel();
-    _lastHistoryTimestamp = 0;
-    _pendingPeak = null;
-    _snapshot = const AudioSnapshot();
+  // Backward-compatible methods used in existing call sites/tests.
+  void onAudioLevel(AudioLevel level) => onAudioLevelForRoom(0, level);
+  void onSoundAlert(SoundAlert alert) => onSoundAlertForRoom(0, alert);
+
+  void resetRoom(int roomId) {
+    _alertClearTimers.remove(roomId)?.cancel();
+    _lastHistoryTimestamp.remove(roomId);
+    _pendingPeak.remove(roomId);
+    _snapshots.remove(roomId);
     notifyListeners();
+  }
+
+  void resetAll() {
+    for (final timer in _alertClearTimers.values) {
+      timer.cancel();
+    }
+    _alertClearTimers.clear();
+    _lastHistoryTimestamp.clear();
+    _pendingPeak.clear();
+    _snapshots.clear();
+    notifyListeners();
+  }
+
+  void reset() {
+    resetAll();
   }
 
   @override
   void dispose() {
-    _alertClearTimer?.cancel();
+    for (final timer in _alertClearTimers.values) {
+      timer.cancel();
+    }
+    _alertClearTimers.clear();
     super.dispose();
   }
 }

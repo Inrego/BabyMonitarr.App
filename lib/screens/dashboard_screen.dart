@@ -18,6 +18,7 @@ import '../utils/room_icons.dart';
 import '../services/pip_service.dart';
 import '../widgets/coach_mark_overlay.dart';
 import '../widgets/live_indicator.dart';
+import '../widgets/zoomable_video_view.dart';
 import 'monitor_detail_screen.dart';
 import 'monitor_settings_screen.dart';
 import 'settings_screen.dart';
@@ -1099,16 +1100,13 @@ class _DashboardScreenState extends State<DashboardScreen>
   }) {
     if (session?.renderer.srcObject != null) {
       final key = _videoPreviewKeys.putIfAbsent(room.id, () => GlobalKey());
-      return ClipRRect(
+      return ZoomableVideoView(
         key: key,
+        renderer: session!.renderer,
+        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+        aspectRatio: 16 / 9,
         borderRadius: BorderRadius.circular(14),
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: RTCVideoView(
-            session!.renderer,
-            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
-          ),
-        ),
+        onTap: () => _openMonitorDetail(room),
       );
     }
 

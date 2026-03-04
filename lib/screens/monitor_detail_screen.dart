@@ -12,6 +12,7 @@ import '../utils/room_icons.dart';
 import '../widgets/live_indicator.dart';
 import '../widgets/sound_level_graph.dart';
 import '../widgets/status_pill.dart';
+import '../widgets/zoomable_video_view.dart';
 
 class MonitorDetailScreen extends StatelessWidget {
   final Room room;
@@ -68,15 +69,11 @@ class MonitorDetailScreen extends StatelessWidget {
 
   Widget _buildVideoSection() {
     if (videoRenderer?.srcObject != null) {
-      return ClipRRect(
+      return ZoomableVideoView(
+        renderer: videoRenderer!,
+        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+        aspectRatio: 16 / 9,
         borderRadius: BorderRadius.circular(16),
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: RTCVideoView(
-            videoRenderer!,
-            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-          ),
-        ),
       );
     }
 

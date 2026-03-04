@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import 'package:signalr_netcore/signalr_client.dart';
@@ -638,82 +639,87 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildHeader(String clock) {
     final keepScreenOn = context.watch<SettingsProvider>().keepScreenOn;
 
-    return Row(
+    return Stack(
+      alignment: Alignment.center,
       children: [
-        Expanded(
-          child: Text(
-            'All Monitors',
-            style: AppTheme.title.copyWith(fontSize: 34),
-          ),
-        ),
+        // Clock – truly centered on the full header width
         Text(clock, style: AppTheme.caption),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: _openSettings,
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceLight,
-              borderRadius: BorderRadius.circular(12),
+        // Left and right items on top
+        Row(
+          children: [
+            SvgPicture.asset(
+              'assets/icon/icon.svg',
+              height: 34,
             ),
-            child: const Icon(
-              Icons.settings_outlined,
-              size: 22,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        GestureDetector(
-          key: _keepScreenOnKey,
-          onTap: () => context
-              .read<SettingsProvider>()
-              .setKeepScreenOn(!keepScreenOn),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            padding: EdgeInsets.symmetric(
-              horizontal: keepScreenOn ? 12 : 8,
-              vertical: 8,
-            ),
-            decoration: BoxDecoration(
-              color: keepScreenOn
-                  ? AppColors.primaryWarm.withValues(alpha: 0.2)
-                  : AppColors.surfaceLight,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  keepScreenOn
-                      ? Icons.lightbulb
-                      : Icons.lightbulb_outline,
-                  size: 22,
+            const SizedBox(width: 8),
+            GestureDetector(
+              key: _keepScreenOnKey,
+              onTap: () => context
+                  .read<SettingsProvider>()
+                  .setKeepScreenOn(!keepScreenOn),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
+                padding: EdgeInsets.symmetric(
+                  horizontal: keepScreenOn ? 12 : 8,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
                   color: keepScreenOn
-                      ? AppColors.primaryWarm
-                      : AppColors.textSecondary,
+                      ? AppColors.primaryWarm.withValues(alpha: 0.2)
+                      : AppColors.surfaceLight,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 250),
-                  curve: Curves.easeInOut,
-                  child: keepScreenOn
-                      ? Padding(
-                          padding: const EdgeInsets.only(left: 6),
-                          child: Text(
-                            'Awake',
-                            style: AppTheme.caption.copyWith(
-                              color: AppColors.primaryWarm,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12,
-                            ),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      keepScreenOn
+                          ? Icons.lightbulb
+                          : Icons.lightbulb_outline,
+                      size: 22,
+                      color: keepScreenOn
+                          ? AppColors.primaryWarm
+                          : AppColors.textSecondary,
+                    ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeInOut,
+                      child: keepScreenOn
+                          ? Padding(
+                              padding: const EdgeInsets.only(left: 6),
+                              child: Text(
+                                'Awake',
+                                style: AppTheme.caption.copyWith(
+                                  color: AppColors.primaryWarm,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
+            const Spacer(),
+            GestureDetector(
+              onTap: _openSettings,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceLight,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.settings_outlined,
+                  size: 22,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );

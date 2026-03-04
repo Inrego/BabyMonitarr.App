@@ -2,7 +2,9 @@ package com.babymonitarr.babymonitarr
 
 import android.app.PictureInPictureParams
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Rect
 import android.os.Build
 import android.util.Log
 import android.util.Rational
@@ -104,10 +106,22 @@ class MainActivity : FlutterActivity() {
                         try {
                             val width = call.argument<Int>("aspectRatioWidth") ?: 16
                             val height = call.argument<Int>("aspectRatioHeight") ?: 9
-                            val params = PictureInPictureParams.Builder()
+                            val builder = PictureInPictureParams.Builder()
                                 .setAspectRatio(Rational(width, height))
-                                .build()
-                            enterPictureInPictureMode(params)
+
+                            val left = call.argument<Int>("sourceRectHintLeft")
+                            val top = call.argument<Int>("sourceRectHintTop")
+                            val right = call.argument<Int>("sourceRectHintRight")
+                            val bottom = call.argument<Int>("sourceRectHintBottom")
+                            if (left != null && top != null && right != null && bottom != null) {
+                                builder.setSourceRectHint(Rect(left, top, right, bottom))
+                            }
+
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                builder.setSeamlessResizeEnabled(true)
+                            }
+
+                            enterPictureInPictureMode(builder.build())
                             result.success(true)
                         } catch (e: Exception) {
                             Log.e(tag, "Failed to enter PIP mode", e)
@@ -119,11 +133,20 @@ class MainActivity : FlutterActivity() {
                 }
                 "exitPip" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode) {
-                        val intent = intent
-                        intent.flags = android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                        startActivity(intent)
+                        val i = Intent(this, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        }
+                        startActivity(i)
                     }
                     result.success(null)
+                }
+                "isPipActive" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        result.success(isInPictureInPictureMode)
+                    } else {
+                        result.success(false)
+                    }
                 }
                 else -> result.notImplemented()
             }

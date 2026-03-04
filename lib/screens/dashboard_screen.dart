@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -28,7 +29,8 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with WidgetsBindingObserver {
   final Map<int, _VideoRoomSession> _videoSessions = <int, _VideoRoomSession>{};
   StreamSubscription? _videoIceSub;
   StreamSubscription? _signalRStateSub;
@@ -42,10 +44,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final PipService _pipService = PipService();
   bool _pipSupported = false;
   final GlobalKey _keepScreenOnKey = GlobalKey();
+  final Map<int, GlobalKey> _videoPreviewKeys = <int, GlobalKey>{};
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() {});
     });
@@ -379,6 +383,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_pipService.activePipRoomId == roomId) {
       await _pipService.exitPip();
     }
+    _videoPreviewKeys.remove(roomId);
     final session = _videoSessions.remove(roomId);
     if (session == null) return;
     final connection = context.read<ConnectionProvider>();
@@ -539,7 +544,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_pipService.activePipRoomId == roomId) {
       await _pipService.exitPip();
     } else {
-      final success = await _pipService.enterPip(roomId: roomId);
+      Rect? sourceRect;
+      final key = _videoPreviewKeys[roomId];
+      if (key != null) {
+        final renderBox =
+            key.currentContext?.findRenderObject() as RenderBox?;
+        if (renderBox != null && renderBox.hasSize) {
+          final topLeft = renderBox.localToGlobal(Offset.zero);
+          sourceRect = Rect.fromLTWH(
+            topLeft.dx,
+            topLeft.dy,
+            renderBox.size.width,
+            renderBox.size.height,
+          );
+        }
+      }
+      final success = await _pipService.enterPip(
+        roomId: roomId,
+        sourceRectHint: sourceRect,
+      );
       if (!success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Picture-in-Picture is not available')),
@@ -557,7 +580,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && _pipService.isInPipMode.value) {
+      _pipService.isPipActive().then((isActive) {
+        if (!isActive && mounted) {
+          _pipService.exitPip();
+        }
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     CoachMarkOverlay.dismiss();
     _clockTimer?.cancel();
     _videoIceSub?.cancel();
@@ -572,8 +608,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // In PIP mode, show only the video fullscreen
-    if (_pipService.isInPipMode.value) {
+    // On Android, the activity IS the PIP window — show a minimal video-only
+    // UI optimised for the small PIP size. On iOS, PIP is handled natively via
+    // AVPictureInPictureController so the Flutter UI should stay unchanged.
+    if (_pipService.isInPipMode.value && Platform.isAndroid) {
       final pipSession = _videoSessions[_pipService.activePipRoomId];
       if (pipSession?.renderer.srcObject != null) {
         return Scaffold(
@@ -1049,7 +1087,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required _VideoRoomSession? session,
   }) {
     if (session?.renderer.srcObject != null) {
+      final key = _videoPreviewKeys.putIfAbsent(room.id, () => GlobalKey());
       return ClipRRect(
+        key: key,
         borderRadius: BorderRadius.circular(14),
         child: AspectRatio(
           aspectRatio: 16 / 9,

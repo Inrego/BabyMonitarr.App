@@ -18,6 +18,7 @@ import '../widgets/coach_mark_overlay.dart';
 import '../widgets/live_indicator.dart';
 import 'monitor_detail_screen.dart';
 import 'monitor_settings_screen.dart';
+import 'settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -422,6 +423,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await _syncVideoSessions();
   }
 
+  void _openSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+  }
+
   void _openMonitorDetail(Room room) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -640,7 +647,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
         Text(clock, style: AppTheme.caption),
-        const SizedBox(width: 12),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: _openSettings,
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceLight,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.settings_outlined,
+              size: 22,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
         GestureDetector(
           key: _keepScreenOnKey,
           onTap: () => context

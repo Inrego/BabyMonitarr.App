@@ -11,7 +11,6 @@ import '../providers/settings_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/room_icons.dart';
-import '../widgets/server_url_dialog.dart';
 
 class MonitorSettingsScreen extends StatefulWidget {
   final int? initialRoomId;
@@ -230,21 +229,6 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
     ).showSnackBar(const SnackBar(content: Text('Monitor deleted')));
   }
 
-  Future<void> _changeServerUrl() async {
-    final settings = context.read<SettingsProvider>();
-    final connection = context.read<ConnectionProvider>();
-    final url = await showDialog<String>(
-      context: context,
-      builder: (_) => ServerUrlDialog(currentUrl: settings.serverUrl),
-    );
-    if (url == null || url.isEmpty) return;
-    await settings.setServerUrl(url);
-    await connection.connect(url);
-    if (!mounted) return;
-    await context.read<RoomProvider>().refreshAll();
-    await _refreshNestIntegration(force: true);
-  }
-
   Future<void> _refreshNestIntegration({bool force = false}) async {
     if (_streamSourceType != 'google_nest' && !force) return;
 
@@ -289,7 +273,6 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
   Widget build(BuildContext context) {
     final roomProvider = context.watch<RoomProvider>();
     final connection = context.watch<ConnectionProvider>();
-    final settings = context.watch<SettingsProvider>();
     _hydrateFromProvider();
 
     final room = roomProvider.editingRoom;
@@ -405,24 +388,6 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
                   _sectionCard(
                     title: 'Connection',
                     children: [
-                      _inputLabel('Server URL'),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              settings.serverUrl ?? 'Not configured',
-                              style: AppTheme.body.copyWith(
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: _changeServerUrl,
-                            child: const Text('Change'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
                       SwitchListTile(
                         value: _enableVideo,
                         onChanged: (value) =>

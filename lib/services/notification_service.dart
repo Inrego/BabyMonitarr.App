@@ -21,6 +21,7 @@ class NotificationService {
   bool _initialized = false;
   bool _monitoringServiceActive = false;
   bool _disconnectAlertShown = false;
+  String? _lastMonitoringBody;
 
   NotificationService({FlutterLocalNotificationsPlugin? plugin})
     : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
@@ -105,6 +106,8 @@ class NotificationService {
         ? 'Reconnecting$roomLabel. Monitoring stays active.'
         : 'Monitoring$roomLabel is active in the background.';
 
+    if (body == _lastMonitoringBody) return;
+
     const androidDetails = AndroidNotificationDetails(
       _foregroundChannelId,
       _foregroundChannelName,
@@ -127,6 +130,7 @@ class NotificationService {
           'body': body,
         });
         _monitoringServiceActive = true;
+        _lastMonitoringBody = body;
         return;
       } catch (_) {}
 
@@ -147,6 +151,7 @@ class NotificationService {
             },
           );
           _monitoringServiceActive = true;
+          _lastMonitoringBody = body;
           return;
         }
       } catch (_) {}
@@ -172,6 +177,7 @@ class NotificationService {
         notificationDetails: details,
       );
       _monitoringServiceActive = true;
+      _lastMonitoringBody = body;
     } catch (_) {}
   }
 
@@ -195,6 +201,7 @@ class NotificationService {
       await _plugin.cancel(id: _monitoringServiceNotificationId);
     } catch (_) {}
     _monitoringServiceActive = false;
+    _lastMonitoringBody = null;
   }
 
   Future<void> showMonitoringDisconnectedNotification({int? roomId}) async {
@@ -253,6 +260,7 @@ class NotificationService {
       await _plugin.cancelAll();
     } catch (_) {}
     _disconnectAlertShown = false;
+    _lastMonitoringBody = null;
   }
 
   Future<bool> requestPermission() async {

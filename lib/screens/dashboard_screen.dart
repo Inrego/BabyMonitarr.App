@@ -14,6 +14,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/room_icons.dart';
 import '../services/pip_service.dart';
+import '../widgets/coach_mark_overlay.dart';
 import '../widgets/live_indicator.dart';
 import 'monitor_detail_screen.dart';
 import 'monitor_settings_screen.dart';
@@ -38,6 +39,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Timer? _clockTimer;
   final PipService _pipService = PipService();
   bool _pipSupported = false;
+  final GlobalKey _keepScreenOnKey = GlobalKey();
 
   @override
   void initState() {
@@ -466,6 +468,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ).showSnackBar(SnackBar(content: Text('Audio failed to start: $e')));
       }
     }
+
+    _maybeShowKeepScreenOnTip();
+  }
+
+  void _maybeShowKeepScreenOnTip() {
+    final settings = context.read<SettingsProvider>();
+    if (settings.hasSeenKeepScreenOnTip) return;
+
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
+      CoachMarkOverlay.show(
+        context: context,
+        targetKey: _keepScreenOnKey,
+        title: 'Keep Screen Awake',
+        message:
+            'Tap here to keep your screen on while monitoring. '
+            'This prevents the display from sleeping so you can '
+            'always see your baby.',
+        onDismiss: () {
+          context.read<SettingsProvider>().markKeepScreenOnTipSeen();
+        },
+      );
+    });
   }
 
   Future<void> _stopMonitoring(int roomId) async {
@@ -525,6 +550,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    CoachMarkOverlay.dismiss();
     _clockTimer?.cancel();
     _videoIceSub?.cancel();
     _signalRStateSub?.cancel();
@@ -615,35 +641,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         Text(clock, style: AppTheme.caption),
         const SizedBox(width: 12),
-        Container(
-          decoration: BoxDecoration(
-            color: keepScreenOn
-                ? AppColors.primaryWarm.withValues(alpha: 0.2)
-                : AppColors.surfaceLight,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: IconButton(
-            onPressed: () => context
-                .read<SettingsProvider>()
-                .setKeepScreenOn(!keepScreenOn),
-            tooltip: keepScreenOn ? 'Screen stays on' : 'Screen may sleep',
-            icon: Icon(
-              Icons.brightness_high,
-              color: keepScreenOn
-                  ? AppColors.primaryWarm
-                  : AppColors.textSecondary,
+        GestureDetector(
+          key: _keepScreenOnKey,
+          onTap: () => context
+              .read<SettingsProvider>()
+              .setKeepScreenOn(!keepScreenOn),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            padding: EdgeInsets.symmetric(
+              horizontal: keepScreenOn ? 12 : 8,
+              vertical: 8,
             ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: AppColors.surfaceLight,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: IconButton(
-            onPressed: () => _openMonitorSettings(),
-            icon: const Icon(Icons.add, color: AppColors.primaryWarm),
+            decoration: BoxDecoration(
+              color: keepScreenOn
+                  ? AppColors.primaryWarm.withValues(alpha: 0.2)
+                  : AppColors.surfaceLight,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  keepScreenOn
+                      ? Icons.lightbulb
+                      : Icons.lightbulb_outline,
+                  size: 22,
+                  color: keepScreenOn
+                      ? AppColors.primaryWarm
+                      : AppColors.textSecondary,
+                ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  child: keepScreenOn
+                      ? Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Text(
+                            'Awake',
+                            style: AppTheme.caption.copyWith(
+                              color: AppColors.primaryWarm,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
           ),
         ),
       ],

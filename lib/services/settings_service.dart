@@ -12,6 +12,7 @@ class SettingsService {
   static const _keyActiveListeningRoomId = 'active_listening_room_id';
   static const _keyActiveListeningRoomIds = 'active_listening_room_ids';
   static const _keyKeepScreenOn = 'keep_screen_on';
+  static const _keyHasSeenKeepScreenOnTip = 'has_seen_keep_screen_on_tip';
 
   final FlutterSecureStorage _storage;
 
@@ -26,6 +27,7 @@ class SettingsService {
     final vibrationStr = await _storage.read(key: _keyVibration);
     final volumeStr = await _storage.read(key: _keyAlertVolume);
     final keepScreenOnStr = await _storage.read(key: _keyKeepScreenOn);
+    final hasSeenTipStr = await _storage.read(key: _keyHasSeenKeepScreenOnTip);
 
     return AppSettings(
       serverUrl: serverUrl,
@@ -35,6 +37,7 @@ class SettingsService {
       vibrationEnabled: vibrationStr != 'false',
       alertVolume: volumeStr != null ? double.tryParse(volumeStr) ?? 0.5 : 0.5,
       keepScreenOn: keepScreenOnStr == 'true',
+      hasSeenKeepScreenOnTip: hasSeenTipStr == 'true',
     );
   }
 
@@ -61,6 +64,10 @@ class SettingsService {
       _storage.write(
         key: _keyKeepScreenOn,
         value: settings.keepScreenOn.toString(),
+      ),
+      _storage.write(
+        key: _keyHasSeenKeepScreenOnTip,
+        value: settings.hasSeenKeepScreenOnTip.toString(),
       ),
     ]);
   }

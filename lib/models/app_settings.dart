@@ -6,6 +6,7 @@ class AppSettings {
   final bool vibrationEnabled;
   final double alertVolume;
   final bool keepScreenOn;
+  final bool hasSeenKeepScreenOnTip;
 
   const AppSettings({
     this.serverUrl,
@@ -15,6 +16,7 @@ class AppSettings {
     this.vibrationEnabled = true,
     this.alertVolume = 0.5,
     this.keepScreenOn = false,
+    this.hasSeenKeepScreenOnTip = false,
   });
 
   AppSettings copyWith({
@@ -25,6 +27,7 @@ class AppSettings {
     bool? vibrationEnabled,
     double? alertVolume,
     bool? keepScreenOn,
+    bool? hasSeenKeepScreenOnTip,
   }) {
     return AppSettings(
       serverUrl: serverUrl ?? this.serverUrl,
@@ -34,6 +37,7 @@ class AppSettings {
       vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
       alertVolume: alertVolume ?? this.alertVolume,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
+      hasSeenKeepScreenOnTip: hasSeenKeepScreenOnTip ?? this.hasSeenKeepScreenOnTip,
     );
   }
 }

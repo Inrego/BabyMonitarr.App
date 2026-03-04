@@ -74,6 +74,13 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   bool get keepScreenOn => _settings.keepScreenOn;
+  bool get hasSeenKeepScreenOnTip => _settings.hasSeenKeepScreenOnTip;
+
+  Future<void> markKeepScreenOnTipSeen() async {
+    _settings = _settings.copyWith(hasSeenKeepScreenOnTip: true);
+    await _service.save(_settings);
+    notifyListeners();
+  }
 
   Future<void> setKeepScreenOn(bool enabled) async {
     _settings = _settings.copyWith(keepScreenOn: enabled);

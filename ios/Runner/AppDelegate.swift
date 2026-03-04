@@ -54,7 +54,7 @@ class PipFrameRenderer: NSObject, RTCVideoRenderer {
     if let cvBuffer = frame.buffer as? RTCCVPixelBuffer {
       return cvBuffer.pixelBuffer
     }
-    guard let i420 = frame.buffer.toI420() else { return nil }
+    let i420 = frame.buffer.toI420()
     return convertI420ToPixelBuffer(i420, width: frame.width, height: frame.height)
   }
 
@@ -287,7 +287,8 @@ class PipFrameRenderer: NSObject, RTCVideoRenderer {
       return nil
     }
 
-    guard let plugin = pluginClass.perform(NSSelectorFromString("sharedSingleton"))?.takeUnretainedValue() else {
+    guard let result = (pluginClass as AnyObject).perform(NSSelectorFromString("sharedSingleton")),
+          let plugin = result.takeUnretainedValue() as AnyObject? else {
       debugPrint("PIP: FlutterWebRTCPlugin singleton not available")
       return nil
     }

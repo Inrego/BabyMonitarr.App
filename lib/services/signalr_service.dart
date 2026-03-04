@@ -42,7 +42,7 @@ class SignalRService {
 
   bool get isConnected => _connection?.state == HubConnectionState.Connected;
 
-  Future<void> connect(String serverUrl) async {
+  Future<void> connect(String serverUrl, {String? apiKey}) async {
     await disconnect();
     final hubUrl = _normalizeHubUrl(serverUrl);
 
@@ -60,6 +60,10 @@ class SignalRService {
             logger: logger,
             logMessageContent: true,
             requestTimeout: 10000,
+            accessTokenFactory:
+                apiKey != null && apiKey.isNotEmpty
+                    ? () async => apiKey
+                    : null,
           ),
         )
         .configureLogging(logger)

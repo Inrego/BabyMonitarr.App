@@ -1,5 +1,7 @@
 class AppSettings {
   final String? serverUrl;
+  final String? apiKey;
+  final String? apiKeyPrefix;
   final bool onboardingComplete;
   final bool darkModeEnabled;
   final String selectedTheme;
@@ -10,6 +12,8 @@ class AppSettings {
 
   const AppSettings({
     this.serverUrl,
+    this.apiKey,
+    this.apiKeyPrefix,
     this.onboardingComplete = false,
     this.darkModeEnabled = true,
     this.selectedTheme = 'warm',
@@ -21,6 +25,8 @@ class AppSettings {
 
   AppSettings copyWith({
     String? serverUrl,
+    String? apiKey,
+    String? apiKeyPrefix,
     bool? onboardingComplete,
     bool? darkModeEnabled,
     String? selectedTheme,
@@ -31,6 +37,8 @@ class AppSettings {
   }) {
     return AppSettings(
       serverUrl: serverUrl ?? this.serverUrl,
+      apiKey: apiKey ?? this.apiKey,
+      apiKeyPrefix: apiKeyPrefix ?? this.apiKeyPrefix,
       onboardingComplete: onboardingComplete ?? this.onboardingComplete,
       darkModeEnabled: darkModeEnabled ?? this.darkModeEnabled,
       selectedTheme: selectedTheme ?? this.selectedTheme,

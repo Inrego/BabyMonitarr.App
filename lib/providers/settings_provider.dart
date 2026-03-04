@@ -22,6 +22,9 @@ class SettingsProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isOnboardingComplete => _settings.onboardingComplete;
   String? get serverUrl => _settings.serverUrl;
+  String? get apiKey => _settings.apiKey;
+  String? get apiKeyPrefix => _settings.apiKeyPrefix;
+  bool get hasApiKey => _settings.apiKey != null && _settings.apiKey!.isNotEmpty;
 
   Set<int> get monitoringRoomIds => _monitoringRoomIds;
   Set<int> get activeListeningRoomIds => _activeListeningRoomIds;
@@ -40,6 +43,19 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setServerUrl(String url) async {
     _settings = _settings.copyWith(serverUrl: url);
     await _service.save(_settings);
+    notifyListeners();
+  }
+
+  Future<void> setApiKey(String key) async {
+    final prefix = key.length >= 8 ? key.substring(0, 8) : key;
+    _settings = _settings.copyWith(apiKey: key, apiKeyPrefix: prefix);
+    await _service.saveApiKey(key);
+    notifyListeners();
+  }
+
+  Future<void> clearApiKey() async {
+    _settings = _settings.copyWith(apiKey: '', apiKeyPrefix: '');
+    await _service.clearApiKey();
     notifyListeners();
   }
 

@@ -7,6 +7,7 @@ import '../providers/connection_provider.dart';
 import '../widgets/settings_section.dart';
 import '../widgets/theme_card.dart';
 import '../widgets/server_url_dialog.dart';
+import 'qr_scan_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -118,40 +119,186 @@ class SettingsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 24),
 
-              // Server info
-              GestureDetector(
-                onTap: () => _showServerUrlDialog(context, settings),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(16),
+              // Connection section
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 8),
+                child: Text(
+                  'CONNECTION',
+                  style: AppTheme.caption.copyWith(
+                    color: AppColors.primaryWarm,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
                   ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    // Server URL row
+                    GestureDetector(
+                      onTap: () => _showServerUrlDialog(context, settings),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
                           children: [
-                            Text('Server URL', style: AppTheme.caption),
-                            const SizedBox(height: 4),
-                            Text(
-                              settings.serverUrl ?? 'Not configured',
-                              style: AppTheme.body.copyWith(
-                                color: AppColors.textPrimary,
+                            const Icon(
+                              Icons.link,
+                              size: 20,
+                              color: AppColors.primaryWarm,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Server URL', style: AppTheme.caption),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    settings.serverUrl ?? 'Not configured',
+                                    style: AppTheme.body.copyWith(
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                ],
                               ),
+                            ),
+                            const Icon(
+                              Icons.edit_outlined,
+                              size: 18,
+                              color: AppColors.textSecondary,
                             ),
                           ],
                         ),
                       ),
-                      const Icon(
-                        Icons.edit_outlined,
-                        size: 18,
-                        color: AppColors.textSecondary,
+                    ),
+                    const Divider(
+                      height: 1,
+                      color: AppColors.surfaceLight,
+                      indent: 16,
+                      endIndent: 16,
+                    ),
+                    // API Key row
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.vpn_key_outlined,
+                            size: 20,
+                            color: AppColors.primaryWarm,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('API Key', style: AppTheme.caption),
+                                const SizedBox(height: 2),
+                                Text(
+                                  settings.hasApiKey
+                                      ? '${settings.apiKeyPrefix}...'
+                                      : 'Not configured',
+                                  style: AppTheme.body.copyWith(
+                                    color: AppColors.textPrimary,
+                                    fontFamily:
+                                        settings.hasApiKey ? 'monospace' : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: settings.hasApiKey
+                                  ? AppColors.successGreen.withValues(alpha: 0.15)
+                                  : AppColors.primaryWarm.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              settings.hasApiKey ? 'Active' : 'Not Set',
+                              style: AppTheme.caption.copyWith(
+                                color: settings.hasApiKey
+                                    ? AppColors.successGreen
+                                    : AppColors.primaryWarm,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    const Divider(
+                      height: 1,
+                      color: AppColors.surfaceLight,
+                      indent: 16,
+                      endIndent: 16,
+                    ),
+                    // Action buttons
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const QrScanScreen(isReconfigure: true),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(
+                                Icons.qr_code_scanner,
+                                size: 16,
+                              ),
+                              label: const Text('Scan QR'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppColors.tealAccent,
+                                textStyle: AppTheme.caption.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Container(
+                            width: 1,
+                            height: 20,
+                            color: AppColors.surfaceLight,
+                          ),
+                          Expanded(
+                            child: TextButton.icon(
+                              onPressed: () =>
+                                  _showApiKeyDialog(context, settings),
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                size: 16,
+                              ),
+                              label: const Text('Enter Key'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppColors.textSecondary,
+                                textStyle: AppTheme.caption.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 32),
@@ -176,6 +323,93 @@ class SettingsScreen extends StatelessWidget {
         final connection = context.read<ConnectionProvider>();
         await connection.disconnect();
         connection.connect(url);
+      }
+    }
+  }
+
+  Future<void> _showApiKeyDialog(
+    BuildContext context,
+    SettingsProvider settings,
+  ) async {
+    final controller = TextEditingController(
+      text: settings.apiKey ?? '',
+    );
+    final key = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        var obscure = true;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Text('API Key', style: AppTheme.subtitle),
+            content: TextField(
+              controller: controller,
+              obscureText: obscure,
+              autocorrect: false,
+              style: AppTheme.body.copyWith(
+                color: AppColors.textPrimary,
+                fontFamily: 'monospace',
+              ),
+              decoration: InputDecoration(
+                hintText: 'Paste your API key',
+                hintStyle: AppTheme.body.copyWith(
+                  color: AppColors.textSecondary.withValues(alpha: 0.5),
+                ),
+                filled: true,
+                fillColor: AppColors.background,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.surfaceLight),
+                ),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    obscure
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    color: AppColors.textSecondary,
+                    size: 20,
+                  ),
+                  onPressed: () =>
+                      setDialogState(() => obscure = !obscure),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(
+                  'Cancel',
+                  style: AppTheme.caption.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () =>
+                    Navigator.pop(ctx, controller.text.trim()),
+                child: Text(
+                  'Save',
+                  style: AppTheme.caption.copyWith(
+                    color: AppColors.primaryWarm,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    controller.dispose();
+    if (key != null && key.isNotEmpty && context.mounted) {
+      await settings.setApiKey(key);
+      if (context.mounted) {
+        final connection = context.read<ConnectionProvider>();
+        await connection.disconnect();
+        connection.connect(settings.serverUrl!);
       }
     }
   }

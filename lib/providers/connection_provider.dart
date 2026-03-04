@@ -114,7 +114,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       _iceCandidateSub = _signalR.onIceCandidate.listen(_onRemoteIceCandidate);
 
       try {
-        await _signalR.connect(normalizedUrl);
+        await _signalR.connect(normalizedUrl, apiKey: _settingsProvider?.apiKey);
         _updateState(MonitorConnectionState.connected);
       } catch (e) {
         _updateState(MonitorConnectionState.failed, error: e.toString());
@@ -514,7 +514,10 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
             debugPrint('Watchdog reconnect: failed to disconnect SignalR: $e');
           }
 
-          await _signalR.connect(SignalRService.normalizeServerUrl(serverUrl));
+          await _signalR.connect(
+            SignalRService.normalizeServerUrl(serverUrl),
+            apiKey: _settingsProvider?.apiKey,
+          );
         }
 
         final current = _audioSessions[roomId];

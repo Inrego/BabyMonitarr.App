@@ -18,12 +18,15 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final _urlController = TextEditingController();
+  final _apiKeyController = TextEditingController();
+  bool _obscureApiKey = true;
   String? _errorText;
   _ConnectionStatus _status = _ConnectionStatus.idle;
 
   @override
   void dispose() {
     _urlController.dispose();
+    _apiKeyController.dispose();
     super.dispose();
   }
 
@@ -61,6 +64,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       final connection = context.read<ConnectionProvider>();
 
       await settings.setServerUrl(normalizedUrl);
+      final apiKey = _apiKeyController.text.trim();
+      if (apiKey.isNotEmpty) {
+        await settings.setApiKey(apiKey);
+      }
       await connection.connect(normalizedUrl);
 
       // Give WebRTC a moment to establish
@@ -138,7 +145,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const SizedBox(height: 8),
               Center(
                 child: Text(
-                  'Enter the address of your BabyMonitarr server to start monitoring.',
+                  'Enter your server address and API key from the web interface.',
                   textAlign: TextAlign.center,
                   style: AppTheme.body,
                 ),
@@ -155,26 +162,76 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 onSubmitted: _connect,
               ),
               const SizedBox(height: 16),
-              Center(
-                child: TextButton(
-                  onPressed: () {},
-                  style: TextButton.styleFrom(
-                    side: const BorderSide(color: AppColors.tealAccent),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 8,
-                    ),
-                  ),
-                  child: Text(
-                    'Need Help?',
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'API Key',
                     style: AppTheme.caption.copyWith(
-                      color: AppColors.tealAccent,
+                      color: AppColors.primaryWarm,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _apiKeyController,
+                    obscureText: _obscureApiKey,
+                    style: AppTheme.body.copyWith(
+                      color: AppColors.textPrimary,
+                      fontFamily: 'monospace',
+                    ),
+                    autocorrect: false,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      hintText: 'Paste your API key',
+                      hintStyle: AppTheme.body.copyWith(
+                        color: AppColors.textSecondary.withValues(alpha: 0.5),
+                      ),
+                      filled: true,
+                      fillColor: AppColors.surface,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: AppColors.surfaceLight,
+                          width: 1.5,
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: AppColors.primaryWarm,
+                          width: 1.5,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.vpn_key_outlined,
+                        color: AppColors.primaryWarm,
+                      ),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureApiKey
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          color: AppColors.textSecondary,
+                          size: 20,
+                        ),
+                        onPressed: () =>
+                            setState(() => _obscureApiKey = !_obscureApiKey),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Optional if your server has no auth configured',
+                    style: AppTheme.caption.copyWith(
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 24),
               _buildStatusIndicator(),

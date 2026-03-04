@@ -3,7 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/feature_pill.dart';
-import 'onboarding_screen.dart';
+import 'onboarding_choice_screen.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -65,7 +65,7 @@ class WelcomeScreen extends StatelessWidget {
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => const OnboardingScreen(),
+                        builder: (_) => const OnboardingChoiceScreen(),
                       ),
                     );
                   },

@@ -55,7 +55,7 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>BabyMonitarr uses camera access for monitor video features.</string>
+	<string>BabyMonitarr needs camera access to scan QR codes for setup and to view monitor video.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>BabyMonitarr uses microphone access for two-way monitor audio features.</string>
 </dict>

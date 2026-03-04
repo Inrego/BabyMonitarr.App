@@ -13,6 +13,8 @@ class SettingsService {
   static const _keyActiveListeningRoomIds = 'active_listening_room_ids';
   static const _keyKeepScreenOn = 'keep_screen_on';
   static const _keyHasSeenKeepScreenOnTip = 'has_seen_keep_screen_on_tip';
+  static const _keyApiKey = 'api_key';
+  static const _keyApiKeyPrefix = 'api_key_prefix';
 
   final FlutterSecureStorage _storage;
 
@@ -28,9 +30,13 @@ class SettingsService {
     final volumeStr = await _storage.read(key: _keyAlertVolume);
     final keepScreenOnStr = await _storage.read(key: _keyKeepScreenOn);
     final hasSeenTipStr = await _storage.read(key: _keyHasSeenKeepScreenOnTip);
+    final apiKey = await _storage.read(key: _keyApiKey);
+    final apiKeyPrefix = await _storage.read(key: _keyApiKeyPrefix);
 
     return AppSettings(
       serverUrl: serverUrl,
+      apiKey: apiKey,
+      apiKeyPrefix: apiKeyPrefix,
       onboardingComplete: onboardingStr == 'true',
       darkModeEnabled: darkModeStr != 'false',
       selectedTheme: theme ?? 'warm',
@@ -117,6 +123,21 @@ class SettingsService {
     await saveActiveListeningRoomIds(migrated);
     await _storage.delete(key: _keyActiveListeningRoomId);
     return migrated;
+  }
+
+  Future<void> saveApiKey(String key) async {
+    final prefix = key.length >= 8 ? key.substring(0, 8) : key;
+    await Future.wait([
+      _storage.write(key: _keyApiKey, value: key),
+      _storage.write(key: _keyApiKeyPrefix, value: prefix),
+    ]);
+  }
+
+  Future<void> clearApiKey() async {
+    await Future.wait([
+      _storage.delete(key: _keyApiKey),
+      _storage.delete(key: _keyApiKeyPrefix),
+    ]);
   }
 
   Future<void> saveActiveListeningRoomIds(Set<int> roomIds) async {

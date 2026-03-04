@@ -582,13 +582,24 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed && _pipService.isInPipMode.value) {
-      _pipService.isPipActive().then((isActive) {
-        if (!isActive && mounted) {
-          _pipService.exitPip();
-        }
-      });
+    if (state == AppLifecycleState.resumed) {
+      if (_pipService.isInPipMode.value) {
+        _pipService.isPipActive().then((isActive) {
+          if (!isActive && mounted) {
+            _pipService.exitPip();
+          }
+        });
+      }
+      _recoverVideoSessionsAfterResume();
     }
+  }
+
+  void _recoverVideoSessionsAfterResume() {
+    if (!mounted || !_initialized || _videoSessions.isEmpty) return;
+    final connection = context.read<ConnectionProvider>();
+    if (!connection.isConnected) return;
+    _disposeAllVideoSessions(notifyServer: false);
+    unawaited(_syncVideoSessions());
   }
 
   @override

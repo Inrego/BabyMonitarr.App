@@ -5,7 +5,6 @@ import '../theme/app_theme.dart';
 import '../providers/settings_provider.dart';
 import '../providers/connection_provider.dart';
 import '../widgets/settings_section.dart';
-import '../widgets/theme_card.dart';
 import '../widgets/server_url_dialog.dart';
 import 'qr_scan_screen.dart';
 
@@ -27,59 +26,6 @@ class SettingsScreen extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             children: [
-              // Appearance section
-              SettingsSection(
-                title: 'APPEARANCE',
-                children: [
-                  SettingsToggleRow(
-                    label: 'Dark Mode',
-                    value: settings.settings.darkModeEnabled,
-                    onChanged: (v) => settings.setDarkMode(v),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              // Theme section
-              Padding(
-                padding: const EdgeInsets.only(left: 4, bottom: 8),
-                child: Text(
-                  'THEME',
-                  style: AppTheme.caption.copyWith(
-                    color: AppColors.primaryWarm,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  ThemeCard(
-                    label: 'Warm',
-                    colors: const [
-                      AppColors.primaryWarm,
-                      AppColors.secondaryWarm,
-                    ],
-                    isSelected: settings.settings.selectedTheme == 'warm',
-                    onTap: () => settings.setTheme('warm'),
-                  ),
-                  ThemeCard(
-                    label: 'Cool',
-                    colors: const [AppColors.tealAccent, Color(0xFF7BA7D7)],
-                    isSelected: settings.settings.selectedTheme == 'cool',
-                    onTap: () => settings.setTheme('cool'),
-                  ),
-                  ThemeCard(
-                    label: 'Auto',
-                    colors: const [AppColors.primaryWarm, AppColors.tealAccent],
-                    isSelected: settings.settings.selectedTheme == 'auto',
-                    onTap: () => settings.setTheme('auto'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
               // Monitoring section
               SettingsSection(
                 title: 'MONITORING',
@@ -92,8 +38,8 @@ class SettingsScreen extends StatelessWidget {
                     endIndent: 16,
                   ),
                   SettingsToggleRow(
-                    label: 'Gentle Alerts',
-                    description: 'Uses soft sounds and vibrations',
+                    label: 'Vibrate on Alert',
+                    description: 'Vibrate when a sound alert is triggered',
                     value: settings.settings.vibrationEnabled,
                     onChanged: (v) => settings.setVibrationEnabled(v),
                   ),

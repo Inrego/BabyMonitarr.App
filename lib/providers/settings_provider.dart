@@ -65,18 +65,6 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setDarkMode(bool enabled) async {
-    _settings = _settings.copyWith(darkModeEnabled: enabled);
-    await _service.save(_settings);
-    notifyListeners();
-  }
-
-  Future<void> setTheme(String theme) async {
-    _settings = _settings.copyWith(selectedTheme: theme);
-    await _service.save(_settings);
-    notifyListeners();
-  }
-
   Future<void> setVibrationEnabled(bool enabled) async {
     _settings = _settings.copyWith(vibrationEnabled: enabled);
     await _service.save(_settings);

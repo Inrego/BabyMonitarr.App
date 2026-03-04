@@ -3,8 +3,6 @@ class AppSettings {
   final String? apiKey;
   final String? apiKeyPrefix;
   final bool onboardingComplete;
-  final bool darkModeEnabled;
-  final String selectedTheme;
   final bool vibrationEnabled;
   final double alertVolume;
   final bool keepScreenOn;
@@ -15,8 +13,6 @@ class AppSettings {
     this.apiKey,
     this.apiKeyPrefix,
     this.onboardingComplete = false,
-    this.darkModeEnabled = true,
-    this.selectedTheme = 'warm',
     this.vibrationEnabled = true,
     this.alertVolume = 0.5,
     this.keepScreenOn = false,
@@ -28,8 +24,6 @@ class AppSettings {
     String? apiKey,
     String? apiKeyPrefix,
     bool? onboardingComplete,
-    bool? darkModeEnabled,
-    String? selectedTheme,
     bool? vibrationEnabled,
     double? alertVolume,
     bool? keepScreenOn,
@@ -40,8 +34,6 @@ class AppSettings {
       apiKey: apiKey ?? this.apiKey,
       apiKeyPrefix: apiKeyPrefix ?? this.apiKeyPrefix,
       onboardingComplete: onboardingComplete ?? this.onboardingComplete,
-      darkModeEnabled: darkModeEnabled ?? this.darkModeEnabled,
-      selectedTheme: selectedTheme ?? this.selectedTheme,
       vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
       alertVolume: alertVolume ?? this.alertVolume,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,

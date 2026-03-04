@@ -4,8 +4,6 @@ import '../models/app_settings.dart';
 class SettingsService {
   static const _keyServerUrl = 'server_url';
   static const _keyOnboardingComplete = 'onboarding_complete';
-  static const _keyDarkMode = 'dark_mode';
-  static const _keyTheme = 'selected_theme';
   static const _keyVibration = 'vibration_enabled';
   static const _keyAlertVolume = 'alert_volume';
   static const _keyMonitoringRoomIds = 'monitoring_room_ids';
@@ -24,8 +22,6 @@ class SettingsService {
   Future<AppSettings> load() async {
     final serverUrl = await _storage.read(key: _keyServerUrl);
     final onboardingStr = await _storage.read(key: _keyOnboardingComplete);
-    final darkModeStr = await _storage.read(key: _keyDarkMode);
-    final theme = await _storage.read(key: _keyTheme);
     final vibrationStr = await _storage.read(key: _keyVibration);
     final volumeStr = await _storage.read(key: _keyAlertVolume);
     final keepScreenOnStr = await _storage.read(key: _keyKeepScreenOn);
@@ -38,8 +34,6 @@ class SettingsService {
       apiKey: apiKey,
       apiKeyPrefix: apiKeyPrefix,
       onboardingComplete: onboardingStr == 'true',
-      darkModeEnabled: darkModeStr != 'false',
-      selectedTheme: theme ?? 'warm',
       vibrationEnabled: vibrationStr != 'false',
       alertVolume: volumeStr != null ? double.tryParse(volumeStr) ?? 0.5 : 0.5,
       keepScreenOn: keepScreenOnStr == 'true',
@@ -54,11 +48,6 @@ class SettingsService {
         key: _keyOnboardingComplete,
         value: settings.onboardingComplete.toString(),
       ),
-      _storage.write(
-        key: _keyDarkMode,
-        value: settings.darkModeEnabled.toString(),
-      ),
-      _storage.write(key: _keyTheme, value: settings.selectedTheme),
       _storage.write(
         key: _keyVibration,
         value: settings.vibrationEnabled.toString(),

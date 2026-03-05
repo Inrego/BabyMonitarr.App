@@ -8,7 +8,6 @@ import android.os.Build
 import android.util.Log
 import android.util.Rational
 import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.android.RenderMode
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -29,10 +28,6 @@ class MainActivity : FlutterActivity() {
     }
 
     private var pipMethodChannel: MethodChannel? = null
-
-    override fun getRenderMode(): RenderMode {
-        return RenderMode.texture
-    }
 
     override fun provideFlutterEngine(context: Context): FlutterEngine {
         val cached = FlutterEngineCache.getInstance().get(engineId)

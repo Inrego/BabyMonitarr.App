@@ -1086,6 +1086,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
         aspectRatio: 16 / 9,
         borderRadius: BorderRadius.circular(14),
+        zoomEnabled: _pipService.activePipRoomId != room.id,
         onTap: () => _openMonitorDetail(room),
       );
     }

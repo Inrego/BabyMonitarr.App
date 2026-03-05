@@ -8,6 +8,7 @@ class ZoomableVideoView extends StatefulWidget {
   final BorderRadius borderRadius;
   final double minScale;
   final double maxScale;
+  final bool zoomEnabled;
   final VoidCallback? onTap;
 
   const ZoomableVideoView({
@@ -18,6 +19,7 @@ class ZoomableVideoView extends StatefulWidget {
     required this.borderRadius,
     this.minScale = 1.0,
     this.maxScale = 4.0,
+    this.zoomEnabled = true,
     this.onTap,
   });
 
@@ -44,6 +46,10 @@ class _ZoomableVideoViewState extends State<ZoomableVideoView> {
   @override
   void didUpdateWidget(covariant ZoomableVideoView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!widget.zoomEnabled && oldWidget.zoomEnabled) {
+      _scale = widget.minScale;
+      _offset = Offset.zero;
+    }
     if (widget.minScale != oldWidget.minScale && _scale < widget.minScale) {
       _scale = widget.minScale;
       _offset = Offset.zero;
@@ -67,49 +73,59 @@ class _ZoomableVideoViewState extends State<ZoomableVideoView> {
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: widget.onTap,
-              onScaleStart: (details) {
-                _startScale = _scale;
-                _startOffset = _offset;
-                _startFocal = _toCentered(details.localFocalPoint, size);
-              },
-              onScaleUpdate: (details) {
-                final focal = _toCentered(details.localFocalPoint, size);
-
-                if (details.pointerCount > 1) {
-                  final unclamped = _startScale * details.scale;
-                  final nextScale = unclamped
-                      .clamp(widget.minScale, widget.maxScale)
-                      .toDouble();
-                  final contentFocal =
-                      (_startFocal - _startOffset) / _startScale;
-                  final nextOffset = focal - (contentFocal * nextScale);
-
-                  setState(() {
-                    _scale = nextScale;
-                    _offset = _clampOffset(nextOffset, size, nextScale);
-                    if (_scale <= widget.minScale + _epsilon) {
-                      _scale = widget.minScale;
-                      _offset = Offset.zero;
+              onScaleStart: widget.zoomEnabled
+                  ? (details) {
+                      _startScale = _scale;
+                      _startOffset = _offset;
+                      _startFocal = _toCentered(details.localFocalPoint, size);
                     }
-                  });
-                  return;
-                }
+                  : null,
+              onScaleUpdate: widget.zoomEnabled
+                  ? (details) {
+                      final focal = _toCentered(details.localFocalPoint, size);
 
-                if (_scale <= widget.minScale + _epsilon) return;
+                      if (details.pointerCount > 1) {
+                        final unclamped = _startScale * details.scale;
+                        final nextScale = unclamped
+                            .clamp(widget.minScale, widget.maxScale)
+                            .toDouble();
+                        final contentFocal =
+                            (_startFocal - _startOffset) / _startScale;
+                        final nextOffset = focal - (contentFocal * nextScale);
 
-                final delta = focal - _startFocal;
-                setState(() {
-                  _offset = _clampOffset(_startOffset + delta, size, _scale);
-                });
-              },
-              onScaleEnd: (_) {
-                if (_scale <= widget.minScale + _epsilon) {
-                  setState(() {
-                    _scale = widget.minScale;
-                    _offset = Offset.zero;
-                  });
-                }
-              },
+                        setState(() {
+                          _scale = nextScale;
+                          _offset = _clampOffset(nextOffset, size, nextScale);
+                          if (_scale <= widget.minScale + _epsilon) {
+                            _scale = widget.minScale;
+                            _offset = Offset.zero;
+                          }
+                        });
+                        return;
+                      }
+
+                      if (_scale <= widget.minScale + _epsilon) return;
+
+                      final delta = focal - _startFocal;
+                      setState(() {
+                        _offset = _clampOffset(
+                          _startOffset + delta,
+                          size,
+                          _scale,
+                        );
+                      });
+                    }
+                  : null,
+              onScaleEnd: widget.zoomEnabled
+                  ? (_) {
+                      if (_scale <= widget.minScale + _epsilon) {
+                        setState(() {
+                          _scale = widget.minScale;
+                          _offset = Offset.zero;
+                        });
+                      }
+                    }
+                  : null,
               child: ClipRect(
                 child: Transform.translate(
                   offset: _offset,

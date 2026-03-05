@@ -59,7 +59,15 @@ class _CoachMarkWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
     final tooltipTop = targetPosition.dy + targetSize.height + 12;
+    const tooltipMaxWidth = 260.0;
+    const margin = 16.0;
+
+    // Align tooltip left edge with target, but clamp so it stays on screen.
+    final leftUnclamped = targetPosition.dx;
+    final maxLeft = screenWidth - tooltipMaxWidth - margin;
+    final tooltipLeft = leftUnclamped.clamp(margin, maxLeft);
 
     return GestureDetector(
       onTap: onDismiss,
@@ -82,10 +90,10 @@ class _CoachMarkWidget extends StatelessWidget {
             ),
             // Tooltip bubble
             Positioned(
-              right: 16,
+              left: tooltipLeft,
               top: tooltipTop,
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 260),
+                constraints: const BoxConstraints(maxWidth: tooltipMaxWidth),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: AppColors.surface,

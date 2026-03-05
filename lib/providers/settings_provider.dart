@@ -139,11 +139,9 @@ class SettingsProvider extends ChangeNotifier {
 
   AudioSettings getUpdatedAudioSettings({
     double? volumeAdjustmentDb,
-    bool? filterEnabled,
   }) {
     _audioSettings = _audioSettings.copyWith(
       volumeAdjustmentDb: volumeAdjustmentDb,
-      filterEnabled: filterEnabled,
     );
     notifyListeners();
     return _audioSettings;

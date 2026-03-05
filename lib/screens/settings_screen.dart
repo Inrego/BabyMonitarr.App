@@ -43,24 +43,6 @@ class SettingsScreen extends StatelessWidget {
                     value: settings.settings.vibrationEnabled,
                     onChanged: (v) => settings.setVibrationEnabled(v),
                   ),
-                  const Divider(
-                    height: 1,
-                    color: AppColors.surfaceLight,
-                    indent: 16,
-                    endIndent: 16,
-                  ),
-                  SettingsToggleRow(
-                    label: 'Smart Filtering',
-                    description: 'Ignore background noise',
-                    value: settings.audioSettings.filterEnabled,
-                    onChanged: (v) {
-                      final updated = settings.getUpdatedAudioSettings(
-                        filterEnabled: v,
-                      );
-                      settings.updateAudioSettings(updated);
-                      context.read<ConnectionProvider>().syncAudioSettings();
-                    },
-                  ),
                 ],
               ),
               const SizedBox(height: 24),

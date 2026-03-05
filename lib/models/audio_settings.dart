@@ -1,9 +1,6 @@
 class AudioSettings {
   final double soundThreshold;
   final int averageSampleCount;
-  final bool filterEnabled;
-  final int lowPassFrequency;
-  final int highPassFrequency;
   final String? cameraStreamUrl;
   final String? cameraUsername;
   final String? cameraPassword;
@@ -14,9 +11,6 @@ class AudioSettings {
   const AudioSettings({
     this.soundThreshold = -20.0,
     this.averageSampleCount = 10,
-    this.filterEnabled = false,
-    this.lowPassFrequency = 4000,
-    this.highPassFrequency = 300,
     this.cameraStreamUrl,
     this.cameraUsername,
     this.cameraPassword,
@@ -29,9 +23,6 @@ class AudioSettings {
     return AudioSettings(
       soundThreshold: (json['soundThreshold'] as num?)?.toDouble() ?? -20.0,
       averageSampleCount: json['averageSampleCount'] as int? ?? 10,
-      filterEnabled: json['filterEnabled'] as bool? ?? false,
-      lowPassFrequency: json['lowPassFrequency'] as int? ?? 4000,
-      highPassFrequency: json['highPassFrequency'] as int? ?? 300,
       cameraStreamUrl: json['cameraStreamUrl'] as String?,
       cameraUsername: json['cameraUsername'] as String?,
       cameraPassword: json['cameraPassword'] as String?,
@@ -46,9 +37,6 @@ class AudioSettings {
     return {
       'soundThreshold': soundThreshold,
       'averageSampleCount': averageSampleCount,
-      'filterEnabled': filterEnabled,
-      'lowPassFrequency': lowPassFrequency,
-      'highPassFrequency': highPassFrequency,
       'cameraStreamUrl': cameraStreamUrl,
       'cameraUsername': cameraUsername,
       'cameraPassword': cameraPassword,
@@ -61,9 +49,6 @@ class AudioSettings {
   AudioSettings copyWith({
     double? soundThreshold,
     int? averageSampleCount,
-    bool? filterEnabled,
-    int? lowPassFrequency,
-    int? highPassFrequency,
     String? cameraStreamUrl,
     String? cameraUsername,
     String? cameraPassword,
@@ -74,9 +59,6 @@ class AudioSettings {
     return AudioSettings(
       soundThreshold: soundThreshold ?? this.soundThreshold,
       averageSampleCount: averageSampleCount ?? this.averageSampleCount,
-      filterEnabled: filterEnabled ?? this.filterEnabled,
-      lowPassFrequency: lowPassFrequency ?? this.lowPassFrequency,
-      highPassFrequency: highPassFrequency ?? this.highPassFrequency,
       cameraStreamUrl: cameraStreamUrl ?? this.cameraStreamUrl,
       cameraUsername: cameraUsername ?? this.cameraUsername,
       cameraPassword: cameraPassword ?? this.cameraPassword,

@@ -25,8 +25,6 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _cameraUrlController = TextEditingController();
   final TextEditingController _thresholdController = TextEditingController();
-  final TextEditingController _highPassController = TextEditingController();
-  final TextEditingController _lowPassController = TextEditingController();
 
   final List<String> _icons = const [
     'baby',
@@ -49,7 +47,6 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
   bool _nestLinked = true;
   bool _loadingNestDevices = false;
   List<NestDevice> _nestDevices = const <NestDevice>[];
-  bool _filterEnabled = false;
   bool _saving = false;
   bool _bootstrapped = false;
 
@@ -107,10 +104,7 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
     _enableAudio = room.enableAudioStream;
     _streamSourceType = room.streamSourceType;
     _nestDeviceId = room.nestDeviceId;
-    _filterEnabled = global.filterEnabled;
     _thresholdController.text = global.soundThreshold.toStringAsFixed(1);
-    _highPassController.text = global.highPassFrequency.toString();
-    _lowPassController.text = global.lowPassFrequency.toString();
 
     if (_streamSourceType == 'google_nest') {
       unawaited(_refreshNestIntegration());
@@ -163,9 +157,6 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
 
       final global = roomProvider.globalSettings.copyWith(
         soundThreshold: _parseDouble(_thresholdController.text, -20.0),
-        highPassFrequency: _parseInt(_highPassController.text, 300),
-        lowPassFrequency: _parseInt(_lowPassController.text, 4000),
-        filterEnabled: _filterEnabled,
       );
 
       await roomProvider.saveRoomAndGlobalSettings(updatedRoom, global);
@@ -264,8 +255,6 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
     _nameController.dispose();
     _cameraUrlController.dispose();
     _thresholdController.dispose();
-    _highPassController.dispose();
-    _lowPassController.dispose();
     super.dispose();
   }
 
@@ -542,34 +531,6 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
                           decimal: true,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      SwitchListTile(
-                        value: _filterEnabled,
-                        onChanged: (value) =>
-                            setState(() => _filterEnabled = value),
-                        title: Text(
-                          'Enable Audio Filters',
-                          style: AppTheme.body.copyWith(
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        contentPadding: EdgeInsets.zero,
-                        activeThumbColor: AppColors.primaryWarm,
-                      ),
-                      const SizedBox(height: 10),
-                      _inputLabel('High Pass (Hz)'),
-                      _textField(
-                        _highPassController,
-                        hint: '300',
-                        keyboardType: TextInputType.number,
-                      ),
-                      const SizedBox(height: 12),
-                      _inputLabel('Low Pass (Hz)'),
-                      _textField(
-                        _lowPassController,
-                        hint: '4000',
-                        keyboardType: TextInputType.number,
-                      ),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -845,9 +806,6 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
     return base.copyWith(
       soundThreshold: global.soundThreshold,
       averageSampleCount: global.averageSampleCount,
-      filterEnabled: global.filterEnabled,
-      lowPassFrequency: global.lowPassFrequency,
-      highPassFrequency: global.highPassFrequency,
       thresholdPauseDuration: global.thresholdPauseDuration,
       volumeAdjustmentDb: global.volumeAdjustmentDb,
     );

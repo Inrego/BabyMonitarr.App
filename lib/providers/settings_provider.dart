@@ -34,10 +34,16 @@ class SettingsProvider extends ChangeNotifier {
     _monitoringRoomIds = await _service.loadMonitoringRoomIds();
     _activeListeningRoomIds = await _service.loadActiveListeningRoomIds();
     _isLoading = false;
-    if (_settings.keepScreenOn) {
-      WakelockPlus.enable();
-    }
+    _updateWakelock();
     notifyListeners();
+  }
+
+  void _updateWakelock() {
+    if (_settings.keepScreenOn && _monitoringRoomIds.isNotEmpty) {
+      WakelockPlus.enable();
+    } else {
+      WakelockPlus.disable();
+    }
   }
 
   Future<void> setServerUrl(String url) async {
@@ -89,11 +95,7 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setKeepScreenOn(bool enabled) async {
     _settings = _settings.copyWith(keepScreenOn: enabled);
     await _service.save(_settings);
-    if (enabled) {
-      await WakelockPlus.enable();
-    } else {
-      await WakelockPlus.disable();
-    }
+    _updateWakelock();
     notifyListeners();
   }
 
@@ -151,11 +153,13 @@ class SettingsProvider extends ChangeNotifier {
     final previous = {..._monitoringRoomIds};
     final next = {...ids};
     _monitoringRoomIds = next;
+    _updateWakelock();
     notifyListeners();
     try {
       await _service.saveMonitoringRoomIds(next);
     } catch (_) {
       _monitoringRoomIds = previous;
+      _updateWakelock();
       notifyListeners();
       rethrow;
     }

@@ -103,6 +103,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     _pipSupported = await _pipService.isPipSupported();
     _pipService.isInPipMode.addListener(_onPipModeChanged);
+    _pipService.isPreparingForPip.addListener(_onPipModeChanged);
 
     _initialized = true;
     if (mounted) {
@@ -431,9 +432,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _openSettings() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
   }
 
   void _openMonitorDetail(Room room) {
@@ -545,25 +546,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (_pipService.activePipRoomId == roomId) {
       await _pipService.exitPip();
     } else {
-      Rect? sourceRect;
-      final key = _videoPreviewKeys[roomId];
-      if (key != null) {
-        final renderBox =
-            key.currentContext?.findRenderObject() as RenderBox?;
-        if (renderBox != null && renderBox.hasSize) {
-          final topLeft = renderBox.localToGlobal(Offset.zero);
-          sourceRect = Rect.fromLTWH(
-            topLeft.dx,
-            topLeft.dy,
-            renderBox.size.width,
-            renderBox.size.height,
-          );
-        }
-      }
-      final success = await _pipService.enterPip(
-        roomId: roomId,
-        sourceRectHint: sourceRect,
-      );
+      final success = await _pipService.enterPip(roomId: roomId);
       if (!success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Picture-in-Picture is not available')),
@@ -613,6 +596,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _boundRoomProvider?.removeListener(_onRoomProviderChanged);
     _boundSettingsProvider?.removeListener(_onSettingsProviderChanged);
     _pipService.isInPipMode.removeListener(_onPipModeChanged);
+    _pipService.isPreparingForPip.removeListener(_onPipModeChanged);
     _pipService.dispose();
     _disposeAllVideoSessions(notifyServer: false);
     super.dispose();
@@ -623,7 +607,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     // On Android, the activity IS the PIP window — show a minimal video-only
     // UI optimised for the small PIP size. On iOS, PIP is handled natively via
     // AVPictureInPictureController so the Flutter UI should stay unchanged.
-    if (_pipService.isInPipMode.value && Platform.isAndroid) {
+    if (Platform.isAndroid &&
+        (_pipService.isInPipMode.value ||
+            _pipService.isPreparingForPip.value)) {
       final pipSession = _videoSessions[_pipService.activePipRoomId];
       if (pipSession?.renderer.srcObject != null) {
         return Scaffold(
@@ -697,16 +683,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         // Left and right items on top
         Row(
           children: [
-            SvgPicture.asset(
-              'assets/icon/icon.svg',
-              height: 34,
-            ),
+            SvgPicture.asset('assets/icon/icon.svg', height: 34),
             const SizedBox(width: 8),
             GestureDetector(
               key: _keepScreenOnKey,
-              onTap: () => context
-                  .read<SettingsProvider>()
-                  .setKeepScreenOn(!keepScreenOn),
+              onTap: () => context.read<SettingsProvider>().setKeepScreenOn(
+                !keepScreenOn,
+              ),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 250),
                 curve: Curves.easeInOut,
@@ -724,9 +707,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      keepScreenOn
-                          ? Icons.lightbulb
-                          : Icons.lightbulb_outline,
+                      keepScreenOn ? Icons.lightbulb : Icons.lightbulb_outline,
                       size: 22,
                       color: keepScreenOn
                           ? AppColors.primaryWarm
@@ -964,8 +945,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 : (roomAudio.currentLevel?.status ?? SoundStatus.quiet),
           )
         : "Everything's peaceful";
-    final isAlerting =
-        listening && roomAudio.alertState == AlertState.alerting;
+    final isAlerting = listening && roomAudio.alertState == AlertState.alerting;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1186,10 +1166,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _pipButton({
-    required bool active,
-    required VoidCallback onPressed,
-  }) {
+  Widget _pipButton({required bool active, required VoidCallback onPressed}) {
     final bg = active
         ? AppColors.primaryWarm.withValues(alpha: 0.2)
         : AppColors.surface;

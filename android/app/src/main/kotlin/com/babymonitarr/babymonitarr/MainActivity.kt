@@ -4,11 +4,11 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
-import android.graphics.Rect
 import android.os.Build
 import android.util.Log
 import android.util.Rational
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.RenderMode
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -29,6 +29,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private var pipMethodChannel: MethodChannel? = null
+
+    override fun getRenderMode(): RenderMode {
+        return RenderMode.texture
+    }
 
     override fun provideFlutterEngine(context: Context): FlutterEngine {
         val cached = FlutterEngineCache.getInstance().get(engineId)
@@ -109,16 +113,8 @@ class MainActivity : FlutterActivity() {
                             val builder = PictureInPictureParams.Builder()
                                 .setAspectRatio(Rational(width, height))
 
-                            val left = call.argument<Int>("sourceRectHintLeft")
-                            val top = call.argument<Int>("sourceRectHintTop")
-                            val right = call.argument<Int>("sourceRectHintRight")
-                            val bottom = call.argument<Int>("sourceRectHintBottom")
-                            if (left != null && top != null && right != null && bottom != null) {
-                                builder.setSourceRectHint(Rect(left, top, right, bottom))
-                            }
-
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                builder.setSeamlessResizeEnabled(true)
+                                builder.setSeamlessResizeEnabled(false)
                             }
 
                             enterPictureInPictureMode(builder.build())

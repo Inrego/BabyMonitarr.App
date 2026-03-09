@@ -14,7 +14,7 @@ import '../widgets/sound_level_graph.dart';
 import '../widgets/status_pill.dart';
 import '../widgets/zoomable_video_view.dart';
 
-class MonitorDetailScreen extends StatelessWidget {
+class MonitorDetailScreen extends StatefulWidget {
   final Room room;
   final RTCVideoRenderer? videoRenderer;
 
@@ -23,6 +23,23 @@ class MonitorDetailScreen extends StatelessWidget {
     required this.room,
     this.videoRenderer,
   });
+
+  @override
+  State<MonitorDetailScreen> createState() => _MonitorDetailScreenState();
+}
+
+class _MonitorDetailScreenState extends State<MonitorDetailScreen> {
+  bool _scrollLocked = false;
+
+  Room get room => widget.room;
+  RTCVideoRenderer? get videoRenderer => widget.videoRenderer;
+
+  void _setScrollLock(bool shouldLock) {
+    if (!mounted || _scrollLocked == shouldLock) return;
+    setState(() {
+      _scrollLocked = shouldLock;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +69,7 @@ class MonitorDetailScreen extends StatelessWidget {
       ),
       body: SafeArea(
         child: ListView(
+          physics: _scrollLocked ? const NeverScrollableScrollPhysics() : null,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: [
             _buildVideoSection(),
@@ -74,6 +92,7 @@ class MonitorDetailScreen extends StatelessWidget {
         objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
         aspectRatio: 16 / 9,
         borderRadius: BorderRadius.circular(16),
+        onScrollLockChanged: _setScrollLock,
       );
     }
 

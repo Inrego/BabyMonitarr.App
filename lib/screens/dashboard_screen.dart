@@ -48,6 +48,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _pipSupported = false;
   final GlobalKey _keepScreenOnKey = GlobalKey();
   final Map<int, GlobalKey> _videoPreviewKeys = <int, GlobalKey>{};
+  final Set<int> _scrollLockedPreviewRoomIds = <int>{};
 
   @override
   void initState() {
@@ -394,6 +395,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       await _pipService.exitPip();
     }
     _videoPreviewKeys.remove(roomId);
+    _scrollLockedPreviewRoomIds.remove(roomId);
     final session = _videoSessions.remove(roomId);
     if (session == null) return;
 
@@ -547,6 +549,15 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _onPipModeChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _setPreviewScrollLock(int roomId, bool shouldLock) {
+    final changed = shouldLock
+        ? _scrollLockedPreviewRoomIds.add(roomId)
+        : _scrollLockedPreviewRoomIds.remove(roomId);
+    if (changed && mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _onPipPressed(int roomId) async {
@@ -777,6 +788,9 @@ class _DashboardScreenState extends State<DashboardScreen>
             }
           },
           child: ListView(
+            physics: _scrollLockedPreviewRoomIds.isNotEmpty
+                ? const NeverScrollableScrollPhysics()
+                : null,
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
             children: [
               _buildHeader(clock),
@@ -1247,6 +1261,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         borderRadius: BorderRadius.circular(14),
         zoomEnabled: _pipService.activePipRoomId != room.id,
         onTap: () => _openMonitorDetail(room),
+        onScrollLockChanged: (shouldLock) =>
+            _setPreviewScrollLock(room.id, shouldLock),
       );
     }
 

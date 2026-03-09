@@ -43,7 +43,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _syncInProgress = false;
   bool _resumeRecoveryInProgress = false;
   bool _restoringActiveListening = false;
-  Timer? _clockTimer;
   final PipService _pipService = PipService();
   bool _pipSupported = false;
   final GlobalKey _keepScreenOnKey = GlobalKey();
@@ -54,9 +53,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
-    });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _initializeData();
     });
@@ -739,7 +735,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     CoachMarkOverlay.dismiss();
-    _clockTimer?.cancel();
     _videoIceSub?.cancel();
     _signalRStateSub?.cancel();
     _boundRoomProvider?.removeListener(_onRoomProviderChanged);
@@ -775,9 +770,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     final audio = context.watch<AudioProvider>();
     final settingsProvider = context.watch<SettingsProvider>();
     final monitoringIds = settingsProvider.monitoringRoomIds;
-    final now = TimeOfDay.now();
-    final clock = now.format(context);
-
     return Scaffold(
       body: SafeArea(
         child: RefreshIndicator(
@@ -793,7 +785,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 : null,
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
             children: [
-              _buildHeader(clock),
+              _buildHeader(),
               const SizedBox(height: 20),
               if (!connection.isConnected)
                 _buildDisconnectedBanner(connection.connectionInfo),
@@ -825,19 +817,15 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _buildHeader(String clock) {
+  Widget _buildHeader() {
     final keepScreenOn = context.watch<SettingsProvider>().keepScreenOn;
 
     return Stack(
       alignment: Alignment.center,
       children: [
-        // Clock – truly centered on the full header width
-        Text(clock, style: AppTheme.caption),
-        // Left and right items on top
+        SvgPicture.asset('assets/icon/icon.svg', height: 34),
         Row(
           children: [
-            SvgPicture.asset('assets/icon/icon.svg', height: 34),
-            const SizedBox(width: 8),
             GestureDetector(
               key: _keepScreenOnKey,
               onTap: () => context.read<SettingsProvider>().setKeepScreenOn(

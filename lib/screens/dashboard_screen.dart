@@ -772,46 +772,38 @@ class _DashboardScreenState extends State<DashboardScreen>
     final monitoringIds = settingsProvider.monitoringRoomIds;
     return Scaffold(
       body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: () async {
-            if (connection.isConnected) {
-              await rooms.refreshAll();
-              await _syncVideoSessions();
-            }
-          },
-          child: ListView(
-            physics: _scrollLockedPreviewRoomIds.isNotEmpty
-                ? const NeverScrollableScrollPhysics()
-                : null,
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-            children: [
-              _buildHeader(),
-              const SizedBox(height: 20),
-              if (!connection.isConnected)
-                _buildDisconnectedBanner(connection.connectionInfo),
-              if (!connection.isConnected) const SizedBox(height: 12),
-              if (rooms.rooms.isEmpty)
-                _buildEmptyState()
-              else
-                ...rooms.rooms.map(
-                  (room) => Padding(
-                    padding: const EdgeInsets.only(bottom: 14),
-                    child: monitoringIds.contains(room.id)
-                        ? GestureDetector(
-                            onTap: () => _openMonitorDetail(room),
-                            child: _buildActiveRoomCard(
-                              room: room,
-                              session: _videoSessions[room.id],
-                              listening: connection.isListeningToRoom(room.id),
-                              muted: connection.isAudioMutedForRoom(room.id),
-                              audio: audio,
-                            ),
-                          )
-                        : _buildInactiveRoomCard(room: room),
-                  ),
+        child: ListView(
+          physics: _scrollLockedPreviewRoomIds.isNotEmpty
+              ? const NeverScrollableScrollPhysics()
+              : null,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+          children: [
+            _buildHeader(),
+            const SizedBox(height: 20),
+            if (!connection.isConnected)
+              _buildDisconnectedBanner(connection.connectionInfo),
+            if (!connection.isConnected) const SizedBox(height: 12),
+            if (rooms.rooms.isEmpty)
+              _buildEmptyState()
+            else
+              ...rooms.rooms.map(
+                (room) => Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: monitoringIds.contains(room.id)
+                      ? GestureDetector(
+                          onTap: () => _openMonitorDetail(room),
+                          child: _buildActiveRoomCard(
+                            room: room,
+                            session: _videoSessions[room.id],
+                            listening: connection.isListeningToRoom(room.id),
+                            muted: connection.isAudioMutedForRoom(room.id),
+                            audio: audio,
+                          ),
+                        )
+                      : _buildInactiveRoomCard(room: room),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );

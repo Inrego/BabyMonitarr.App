@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import 'package:signalr_netcore/signalr_client.dart';
 import '../models/audio_state.dart';
+import '../models/connection_state.dart';
 import '../models/remote_video_ice_candidate.dart';
 import '../models/room.dart';
 import '../providers/audio_provider.dart';
@@ -780,7 +781,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             children: [
               _buildHeader(clock),
               const SizedBox(height: 20),
-              if (!connection.isConnected) _buildDisconnectedBanner(),
+              if (!connection.isConnected)
+                _buildDisconnectedBanner(connection.connectionInfo),
               if (!connection.isConnected) const SizedBox(height: 12),
               if (rooms.rooms.isEmpty)
                 _buildEmptyState()
@@ -893,8 +895,28 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _buildDisconnectedBanner() {
+  Widget _buildDisconnectedBanner(ConnectionInfo info) {
     final settings = context.read<SettingsProvider>();
+    final serverLabel = settings.serverUrl ?? 'server';
+    String message;
+
+    switch (info.state) {
+      case MonitorConnectionState.connecting:
+        message = 'Connecting to $serverLabel...';
+        break;
+      case MonitorConnectionState.reconnecting:
+        message = 'Reconnecting to $serverLabel automatically...';
+        break;
+      case MonitorConnectionState.connected:
+        message = 'Connected to $serverLabel.';
+        break;
+      case MonitorConnectionState.disconnected:
+      case MonitorConnectionState.failed:
+        message =
+            'Connection to $serverLabel was lost. Reconnecting automatically...';
+        break;
+    }
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -907,7 +929,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Disconnected from ${settings.serverUrl ?? 'server'}. Pull to retry.',
+              message,
               style: AppTheme.caption.copyWith(color: AppColors.textPrimary),
             ),
           ),

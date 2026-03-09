@@ -5,49 +5,34 @@ import '../models/connection_state.dart';
 
 class ConnectionStatusBar extends StatelessWidget {
   final ConnectionInfo info;
-  final VoidCallback? onTap;
 
-  const ConnectionStatusBar({super.key, required this.info, this.onTap});
-
-  bool get _isTappable =>
-      info.state == MonitorConnectionState.disconnected ||
-      info.state == MonitorConnectionState.failed;
+  const ConnectionStatusBar({super.key, required this.info});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: _isTappable ? onTap : null,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _buildDot(),
-            const SizedBox(width: 8),
-            Text(_statusText, style: AppTheme.caption),
-            if (info.isConnected) ...[
-              Text('  \u00B7  ', style: AppTheme.caption),
-              Icon(_signalIcon, size: 14, color: _signalColor),
-              const SizedBox(width: 4),
-              Text(
-                'Signal: ${info.qualityLabel}',
-                style: AppTheme.caption.copyWith(color: _signalColor),
-              ),
-            ],
-            if (_isTappable && onTap != null) ...[
-              Text('  \u00B7  ', style: AppTheme.caption),
-              Text(
-                'Tap to reconnect',
-                style: AppTheme.caption.copyWith(color: AppColors.primaryWarm),
-              ),
-            ],
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _buildDot(),
+          const SizedBox(width: 8),
+          Text(_statusText, style: AppTheme.caption),
+          if (info.isConnected) ...[
+            Text('  \u00B7  ', style: AppTheme.caption),
+            Icon(_signalIcon, size: 14, color: _signalColor),
+            const SizedBox(width: 4),
+            Text(
+              'Signal: ${info.qualityLabel}',
+              style: AppTheme.caption.copyWith(color: _signalColor),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

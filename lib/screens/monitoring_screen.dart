@@ -15,7 +15,6 @@ import '../widgets/status_pill.dart';
 import '../widgets/action_button.dart';
 import '../widgets/connection_status_bar.dart';
 import 'settings_screen.dart';
-import '../widgets/server_url_dialog.dart';
 
 class MonitoringScreen extends StatefulWidget {
   const MonitoringScreen({super.key});
@@ -51,32 +50,6 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         url.isNotEmpty &&
         !connection.isConnected &&
         connection.connectionInfo.state != MonitorConnectionState.connecting) {
-      connection.connect(url);
-    }
-  }
-
-  void _onStatusBarTap() {
-    final settings = context.read<SettingsProvider>();
-    final connection = context.read<ConnectionProvider>();
-    final url = settings.serverUrl;
-
-    if (url != null && url.isNotEmpty) {
-      connection.connect(url);
-    } else {
-      _showServerUrlDialog();
-    }
-  }
-
-  Future<void> _showServerUrlDialog() async {
-    final settings = context.read<SettingsProvider>();
-    final connection = context.read<ConnectionProvider>();
-
-    final url = await showDialog<String>(
-      context: context,
-      builder: (_) => ServerUrlDialog(currentUrl: settings.serverUrl),
-    );
-    if (url != null && url.isNotEmpty) {
-      await settings.setServerUrl(url);
       connection.connect(url);
     }
   }
@@ -173,10 +146,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                 const Spacer(),
                 Consumer<ConnectionProvider>(
                   builder: (context, connection, _) {
-                    return ConnectionStatusBar(
-                      info: connection.connectionInfo,
-                      onTap: _onStatusBarTap,
-                    );
+                    return ConnectionStatusBar(info: connection.connectionInfo);
                   },
                 ),
                 const SizedBox(height: 16),

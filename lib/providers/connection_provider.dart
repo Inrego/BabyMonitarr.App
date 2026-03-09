@@ -114,7 +114,10 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       _iceCandidateSub = _signalR.onIceCandidate.listen(_onRemoteIceCandidate);
 
       try {
-        await _signalR.connect(normalizedUrl, apiKey: _settingsProvider?.apiKey);
+        await _signalR.connect(
+          normalizedUrl,
+          apiKey: _settingsProvider?.apiKey,
+        );
         _updateState(MonitorConnectionState.connected);
       } catch (e) {
         _updateState(MonitorConnectionState.failed, error: e.toString());
@@ -264,8 +267,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     ) {
       _markAudioPacketReceived(session);
       _audioProvider?.onSoundAlertForRoom(roomId, alert);
-      final roomName =
-          _roomProvider?.roomById(roomId)?.name ?? 'Room $roomId';
+      final roomName = _roomProvider?.roomById(roomId)?.name ?? 'Room $roomId';
       _handleSoundAlert(alert, roomName: roomName);
     });
 
@@ -478,6 +480,24 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     return isStalled;
   }
 
+  Future<void> _reconnectSignalRPreservingSessions() async {
+    final serverUrl = _settingsProvider?.serverUrl;
+    if (serverUrl == null || serverUrl.trim().isEmpty) {
+      _updateState(
+        MonitorConnectionState.failed,
+        error: 'Missing server URL for reconnect',
+      );
+      return;
+    }
+
+    _ensureSignalRSubscriptions();
+    _updateState(MonitorConnectionState.reconnecting);
+    await _signalR.connect(
+      SignalRService.normalizeServerUrl(serverUrl),
+      apiKey: _settingsProvider?.apiKey,
+    );
+  }
+
   Future<void> _recoverFromWatchdog(int roomId) async {
     final session = _audioSessions[roomId];
     if (session == null) return;
@@ -498,26 +518,8 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         await _audioSession.ensureConfigured();
 
         if (!_signalR.isConnected) {
-          final serverUrl = _settingsProvider?.serverUrl;
-          if (serverUrl == null || serverUrl.trim().isEmpty) {
-            _updateState(
-              MonitorConnectionState.failed,
-              error: 'Missing server URL for reconnect',
-            );
-            return;
-          }
-
-          _ensureSignalRSubscriptions();
-          try {
-            await _signalR.disconnect();
-          } catch (e) {
-            debugPrint('Watchdog reconnect: failed to disconnect SignalR: $e');
-          }
-
-          await _signalR.connect(
-            SignalRService.normalizeServerUrl(serverUrl),
-            apiKey: _settingsProvider?.apiKey,
-          );
+          await _reconnectSignalRPreservingSessions();
+          if (!_signalR.isConnected) return;
         }
 
         final current = _audioSessions[roomId];
@@ -540,6 +542,41 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         current.watchdogRecoveryRunning = false;
       }
     }
+  }
+
+  Future<void> _recoverConnectionAfterResume() async {
+    final serverUrl = _settingsProvider?.serverUrl;
+    if (_disposed ||
+        _intentionalDisconnect ||
+        serverUrl == null ||
+        serverUrl.trim().isEmpty) {
+      return;
+    }
+
+    await _runSerialized(() async {
+      if (_disposed || _intentionalDisconnect) return;
+
+      if (!_signalR.isConnected) {
+        try {
+          await _reconnectSignalRPreservingSessions();
+        } catch (e) {
+          debugPrint('Failed to reconnect SignalR on resume: $e');
+          _updateState(
+            MonitorConnectionState.failed,
+            error: 'Failed to reconnect after resume: $e',
+          );
+          if (isListening) {
+            _startWatchdog();
+          }
+          return;
+        }
+      }
+
+      if (isListening) {
+        _startWatchdog();
+        await _recoverAudioSessionAfterResume();
+      }
+    });
   }
 
   void _ensureSignalRSubscriptions() {
@@ -763,7 +800,6 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
-
         if (isListening) {
           _startWatchdog();
           unawaited(
@@ -777,20 +813,18 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
         break;
       case AppLifecycleState.resumed:
-
         if (isListening) {
           unawaited(
             _refreshMonitoringNotification().catchError((e) {
               debugPrint('Failed to refresh monitoring foreground service: $e');
             }),
           );
-          unawaited(_recoverAudioSessionAfterResume());
         } else {
           unawaited(_notification.stopMonitoringServiceNotification());
         }
+        unawaited(_recoverConnectionAfterResume());
         break;
       case AppLifecycleState.detached:
-
         if (isListening) {
           _startWatchdog();
           unawaited(

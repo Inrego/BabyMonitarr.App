@@ -41,9 +41,9 @@ BabyMonitarr App is the mobile client for [BabyMonitarr](https://github.com/Inre
 
 ## Screenshots
 
-| Dashboard | Monitor Detail | Settings |
-|:-:|:-:|:-:|
-| ![Dashboard](screenshots/dashboard.png) | ![Monitor Detail](screenshots/monitor_detail.png) | ![Settings](screenshots/settings.png) |
+| Dashboard |                  Monitor Detail                  |               Settings                |
+|:-:|:------------------------------------------------:|:-------------------------------------:|
+| ![Dashboard](screenshots/dashboard.png) | ![Monitor Detail](screenshots/detailed_view.png) | ![Settings](screenshots/settings.jpg) |
 
 ## Getting Started
 

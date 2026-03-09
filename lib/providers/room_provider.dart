@@ -161,6 +161,15 @@ class RoomProvider extends ChangeNotifier {
     await refreshRooms();
   }
 
+  Future<void> updateGlobalSettings(GlobalSettings globalSettings) async {
+    final connection = _connection;
+    if (connection == null || !connection.isConnected) return;
+
+    await connection.signalR.updateGlobalSettings(globalSettings);
+    _globalSettings = globalSettings;
+    notifyListeners();
+  }
+
   void setEditingRoomId(int? roomId) {
     if (_editingRoomId == roomId) return;
     _editingRoomId = roomId;

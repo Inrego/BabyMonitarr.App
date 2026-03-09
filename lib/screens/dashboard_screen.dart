@@ -15,6 +15,7 @@ import '../providers/room_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../utils/audio_level_scale.dart';
 import '../utils/room_icons.dart';
 import '../services/pip_service.dart';
 import '../widgets/coach_mark_overlay.dart';
@@ -1083,9 +1084,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final canListen = _canStartAudioForRoom(room);
     final roomAudio = audio.snapshotForRoom(room.id);
     final level = listening ? roomAudio.currentLevel?.level : null;
-    final progress = level == null
-        ? 0.0
-        : ((level - -90.0) / 90.0).clamp(0.0, 1.0).toDouble();
+    final progress = level == null ? 0.0 : AudioLevelScale.normalizeDb(level);
     final levelLabel = level == null
         ? '-- dB'
         : '${level.toStringAsFixed(1)} dB';

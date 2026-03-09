@@ -1,3 +1,5 @@
+import '../utils/audio_level_scale.dart';
+
 class AppSettings {
   final String? serverUrl;
   final String? apiKey;
@@ -14,7 +16,7 @@ class AppSettings {
     this.apiKeyPrefix,
     this.onboardingComplete = false,
     this.vibrationEnabled = true,
-    this.alertVolume = 0.5,
+    this.alertVolume = AudioLevelScale.defaultAlertThresholdDb,
     this.keepScreenOn = false,
     this.hasSeenKeepScreenOnTip = false,
   });
@@ -37,7 +39,8 @@ class AppSettings {
       vibrationEnabled: vibrationEnabled ?? this.vibrationEnabled,
       alertVolume: alertVolume ?? this.alertVolume,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
-      hasSeenKeepScreenOnTip: hasSeenKeepScreenOnTip ?? this.hasSeenKeepScreenOnTip,
+      hasSeenKeepScreenOnTip:
+          hasSeenKeepScreenOnTip ?? this.hasSeenKeepScreenOnTip,
     );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/app_settings.dart';
+import '../utils/audio_level_scale.dart';
 
 class SettingsService {
   static const _keyServerUrl = 'server_url';
@@ -35,10 +36,21 @@ class SettingsService {
       apiKeyPrefix: apiKeyPrefix,
       onboardingComplete: onboardingStr == 'true',
       vibrationEnabled: vibrationStr != 'false',
-      alertVolume: volumeStr != null ? double.tryParse(volumeStr) ?? 0.5 : 0.5,
+      alertVolume: _parseAlertVolume(volumeStr),
       keepScreenOn: keepScreenOnStr == 'true',
       hasSeenKeepScreenOnTip: hasSeenTipStr == 'true',
     );
+  }
+
+  double _parseAlertVolume(String? rawValue) {
+    final parsed = rawValue == null ? null : double.tryParse(rawValue);
+    if (parsed == null) {
+      return AudioLevelScale.defaultAlertThresholdDb;
+    }
+    if (AudioLevelScale.isLegacyNormalizedAlertValue(parsed)) {
+      return AudioLevelScale.legacyNormalizedAlertValueToDb(parsed);
+    }
+    return AudioLevelScale.clampDb(parsed);
   }
 
   Future<void> save(AppSettings settings) async {

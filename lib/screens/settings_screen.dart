@@ -4,6 +4,8 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../providers/settings_provider.dart';
 import '../providers/connection_provider.dart';
+import '../providers/room_provider.dart';
+import '../utils/audio_level_scale.dart';
 import '../widgets/settings_section.dart';
 import '../widgets/server_url_dialog.dart';
 import 'qr_scan_screen.dart';
@@ -21,8 +23,9 @@ class SettingsScreen extends StatelessWidget {
         ),
         title: Text('Settings', style: AppTheme.subtitle),
       ),
-      body: Consumer<SettingsProvider>(
-        builder: (context, settings, _) {
+      body: Consumer2<SettingsProvider, RoomProvider>(
+        builder: (context, settings, rooms, _) {
+          final connection = context.watch<ConnectionProvider>();
           return ListView(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             children: [
@@ -30,7 +33,12 @@ class SettingsScreen extends StatelessWidget {
               SettingsSection(
                 title: 'MONITORING',
                 children: [
-                  _buildVolumeSlider(context, settings),
+                  _buildVolumeSlider(
+                    context,
+                    settings,
+                    rooms,
+                    connection.isConnected && rooms.isLoaded,
+                  ),
                   const Divider(
                     height: 1,
                     color: AppColors.surfaceLight,
@@ -132,8 +140,9 @@ class SettingsScreen extends StatelessWidget {
                                       : 'Not configured',
                                   style: AppTheme.body.copyWith(
                                     color: AppColors.textPrimary,
-                                    fontFamily:
-                                        settings.hasApiKey ? 'monospace' : null,
+                                    fontFamily: settings.hasApiKey
+                                        ? 'monospace'
+                                        : null,
                                   ),
                                 ),
                               ],
@@ -146,8 +155,12 @@ class SettingsScreen extends StatelessWidget {
                             ),
                             decoration: BoxDecoration(
                               color: settings.hasApiKey
-                                  ? AppColors.successGreen.withValues(alpha: 0.15)
-                                  : AppColors.primaryWarm.withValues(alpha: 0.15),
+                                  ? AppColors.successGreen.withValues(
+                                      alpha: 0.15,
+                                    )
+                                  : AppColors.primaryWarm.withValues(
+                                      alpha: 0.15,
+                                    ),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
@@ -188,10 +201,7 @@ class SettingsScreen extends StatelessWidget {
                                   ),
                                 );
                               },
-                              icon: const Icon(
-                                Icons.qr_code_scanner,
-                                size: 16,
-                              ),
+                              icon: const Icon(Icons.qr_code_scanner, size: 16),
                               label: const Text('Scan QR'),
                               style: TextButton.styleFrom(
                                 foregroundColor: AppColors.tealAccent,
@@ -210,10 +220,7 @@ class SettingsScreen extends StatelessWidget {
                             child: TextButton.icon(
                               onPressed: () =>
                                   _showApiKeyDialog(context, settings),
-                              icon: const Icon(
-                                Icons.edit_outlined,
-                                size: 16,
-                              ),
+                              icon: const Icon(Icons.edit_outlined, size: 16),
                               label: const Text('Enter Key'),
                               style: TextButton.styleFrom(
                                 foregroundColor: AppColors.textSecondary,
@@ -259,9 +266,7 @@ class SettingsScreen extends StatelessWidget {
     BuildContext context,
     SettingsProvider settings,
   ) async {
-    final controller = TextEditingController(
-      text: settings.apiKey ?? '',
-    );
+    final controller = TextEditingController(text: settings.apiKey ?? '');
     final key = await showDialog<String>(
       context: context,
       builder: (ctx) {
@@ -300,8 +305,7 @@ class SettingsScreen extends StatelessWidget {
                     color: AppColors.textSecondary,
                     size: 20,
                   ),
-                  onPressed: () =>
-                      setDialogState(() => obscure = !obscure),
+                  onPressed: () => setDialogState(() => obscure = !obscure),
                 ),
               ),
             ),
@@ -316,8 +320,7 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
               TextButton(
-                onPressed: () =>
-                    Navigator.pop(ctx, controller.text.trim()),
+                onPressed: () => Navigator.pop(ctx, controller.text.trim()),
                 child: Text(
                   'Save',
                   style: AppTheme.caption.copyWith(
@@ -342,10 +345,69 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
-  Widget _buildVolumeSlider(BuildContext context, SettingsProvider settings) {
-    // Map alert volume (0.0 - 1.0) to a dB display (-30 to 0)
-    final volumeDb = (settings.settings.alertVolume * 30 - 30).roundToDouble();
-    final volumeLabel = _volumeLabel(settings.settings.alertVolume);
+  Widget _buildVolumeSlider(
+    BuildContext context,
+    SettingsProvider settings,
+    RoomProvider rooms,
+    bool hasRemoteThreshold,
+  ) {
+    final thresholdDb = AudioLevelScale.clampDb(
+      hasRemoteThreshold
+          ? rooms.globalSettings.soundThreshold
+          : settings.settings.alertVolume,
+    );
+    final minLabel = AudioLevelScale.minDb.toStringAsFixed(0);
+    final maxLabel = AudioLevelScale.maxDb.toStringAsFixed(0);
+
+    return _AlertThresholdSlider(
+      thresholdDb: thresholdDb,
+      settings: settings,
+      rooms: rooms,
+      hasRemoteThreshold: hasRemoteThreshold,
+      minLabel: minLabel,
+      maxLabel: maxLabel,
+    );
+  }
+}
+
+class _AlertThresholdSlider extends StatefulWidget {
+  final double thresholdDb;
+  final SettingsProvider settings;
+  final RoomProvider rooms;
+  final bool hasRemoteThreshold;
+  final String minLabel;
+  final String maxLabel;
+
+  const _AlertThresholdSlider({
+    required this.thresholdDb,
+    required this.settings,
+    required this.rooms,
+    required this.hasRemoteThreshold,
+    required this.minLabel,
+    required this.maxLabel,
+  });
+
+  @override
+  State<_AlertThresholdSlider> createState() => _AlertThresholdSliderState();
+}
+
+class _AlertThresholdSliderState extends State<_AlertThresholdSlider> {
+  double? _pendingThresholdDb;
+
+  @override
+  void didUpdateWidget(covariant _AlertThresholdSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_pendingThresholdDb != null &&
+        (widget.thresholdDb - _pendingThresholdDb!).abs() < 0.1) {
+      setState(() {
+        _pendingThresholdDb = null;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final thresholdDb = _pendingThresholdDb ?? widget.thresholdDb;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -356,11 +418,11 @@ class SettingsScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Alert Volume',
+                'Alert Threshold',
                 style: AppTheme.body.copyWith(color: AppColors.textPrimary),
               ),
               Text(
-                '$volumeLabel (${volumeDb.toStringAsFixed(0)} dB)',
+                '${thresholdDb.toStringAsFixed(0)} dB',
                 style: AppTheme.caption.copyWith(color: AppColors.primaryWarm),
               ),
             ],
@@ -372,34 +434,56 @@ class SettingsScreen extends StatelessWidget {
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),
             child: Slider(
-              value: settings.settings.alertVolume,
-              onChanged: (v) => settings.setAlertVolume(v),
-              onChangeEnd: (v) {
-                final dbValue = v * 30 - 30;
-                final updated = settings.getUpdatedAudioSettings(
-                  volumeAdjustmentDb: dbValue,
+              min: AudioLevelScale.minDb,
+              max: AudioLevelScale.maxDb,
+              divisions: (AudioLevelScale.maxDb - AudioLevelScale.minDb)
+                  .round(),
+              label: '${thresholdDb.toStringAsFixed(0)} dB',
+              value: thresholdDb,
+              onChanged: (v) {
+                final nextThresholdDb = AudioLevelScale.clampDb(v);
+                setState(() {
+                  _pendingThresholdDb = nextThresholdDb;
+                });
+                widget.settings.setAlertVolume(nextThresholdDb);
+              },
+              onChangeEnd: (v) async {
+                final nextThresholdDb = AudioLevelScale.clampDb(v);
+                final updated = widget.settings.audioSettings.copyWith(
+                  soundThreshold: nextThresholdDb,
                 );
-                settings.updateAudioSettings(updated);
-                context.read<ConnectionProvider>().syncAudioSettings();
+                widget.settings.updateAudioSettings(updated);
+                if (!widget.hasRemoteThreshold) {
+                  if (!mounted) return;
+                  setState(() {
+                    _pendingThresholdDb = null;
+                  });
+                  return;
+                }
+                try {
+                  await widget.rooms.updateGlobalSettings(
+                    widget.rooms.globalSettings.copyWith(
+                      soundThreshold: nextThresholdDb,
+                    ),
+                  );
+                } catch (_) {
+                  if (!mounted) return;
+                  setState(() {
+                    _pendingThresholdDb = null;
+                  });
+                }
               },
             ),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Whisper', style: AppTheme.caption),
-              Text('Loud', style: AppTheme.caption),
+              Text('${widget.minLabel} dB', style: AppTheme.caption),
+              Text('${widget.maxLabel} dB', style: AppTheme.caption),
             ],
           ),
         ],
       ),
     );
-  }
-
-  String _volumeLabel(double value) {
-    if (value < 0.25) return 'Whisper';
-    if (value < 0.5) return 'Soft';
-    if (value < 0.75) return 'Normal';
-    return 'Loud';
   }
 }

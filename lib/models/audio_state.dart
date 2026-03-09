@@ -1,3 +1,5 @@
+import '../utils/audio_level_scale.dart';
+
 class AudioLevel {
   final double level;
   final int timestamp;
@@ -11,10 +13,8 @@ class AudioLevel {
     );
   }
 
-  static const double _dbFloor = -90.0;
-
   double get displayLevel =>
-      ((level - _dbFloor) / (0 - _dbFloor) * 100).clamp(0, 100);
+      (AudioLevelScale.normalizeDb(level) * 100).clamp(0, 100);
 
   SoundStatus get status {
     final normalized = displayLevel;

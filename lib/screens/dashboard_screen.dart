@@ -40,6 +40,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Set<int> _lastMonitoringRoomIds = const <int>{};
   bool _initialized = false;
   bool _syncInProgress = false;
+  bool _resumeRecoveryInProgress = false;
   bool _restoringActiveListening = false;
   Timer? _clockTimer;
   final PipService _pipService = PipService();
@@ -278,6 +279,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       final rtcConfig = await connection.signalR.getWebRtcConfig();
       final pc = await createPeerConnection(rtcConfig.toPeerConnectionConfig());
       session.peerConnection = pc;
+      session.connectionState =
+          RTCPeerConnectionState.RTCPeerConnectionStateNew;
 
       pc.onIceCandidate = (candidate) {
         final raw = candidate.candidate;
@@ -310,6 +313,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       };
 
       pc.onConnectionState = (state) {
+        session.connectionState = state;
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
           session.isLoading = false;
           session.isConnected = true;
@@ -347,6 +351,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     } catch (e) {
       session.isLoading = false;
       session.isConnected = false;
+      session.connectionState =
+          RTCPeerConnectionState.RTCPeerConnectionStateFailed;
       session.error = e.toString();
       if (mounted) setState(() {});
     }
@@ -382,13 +388,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     int roomId, {
     required bool notifyServer,
   }) async {
+    final connection = context.read<ConnectionProvider>();
     if (_pipService.activePipRoomId == roomId) {
       await _pipService.exitPip();
     }
     _videoPreviewKeys.remove(roomId);
     final session = _videoSessions.remove(roomId);
     if (session == null) return;
-    final connection = context.read<ConnectionProvider>();
 
     if (notifyServer && connection.isConnected) {
       try {
@@ -509,11 +515,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _stopMonitoring(int roomId) async {
+    final connection = context.read<ConnectionProvider>();
+    final settingsProvider = context.read<SettingsProvider>();
     if (_pipService.activePipRoomId == roomId) {
       await _pipService.exitPip();
     }
-    final connection = context.read<ConnectionProvider>();
-    final settingsProvider = context.read<SettingsProvider>();
     try {
       await settingsProvider.removeMonitoringRoom(roomId);
     } catch (e) {
@@ -574,16 +580,147 @@ class _DashboardScreenState extends State<DashboardScreen>
           }
         });
       }
-      _recoverVideoSessionsAfterResume();
+      unawaited(_recoverVideoSessionsAfterResume());
     }
   }
 
-  void _recoverVideoSessionsAfterResume() {
-    if (!mounted || !_initialized || _videoSessions.isEmpty) return;
+  Future<void> _recoverVideoSessionsAfterResume() async {
+    if (!mounted ||
+        !_initialized ||
+        _videoSessions.isEmpty ||
+        _resumeRecoveryInProgress) {
+      return;
+    }
     final connection = context.read<ConnectionProvider>();
     if (!connection.isConnected) return;
-    _disposeAllVideoSessions(notifyServer: false);
-    unawaited(_syncVideoSessions());
+
+    _resumeRecoveryInProgress = true;
+    try {
+      final sessionEntries = _videoSessions.entries.toList(growable: false);
+      final originalSessionsByRoomId = <int, _VideoRoomSession>{
+        for (final entry in sessionEntries) entry.key: entry.value,
+      };
+      final healthChecks = await Future.wait(
+        sessionEntries.map(
+          (entry) => _isVideoSessionHealthy(entry.key, entry.value),
+        ),
+      );
+
+      final unhealthyRoomIds = <int>[];
+      for (var i = 0; i < sessionEntries.length; i++) {
+        if (!healthChecks[i]) {
+          unhealthyRoomIds.add(sessionEntries[i].key);
+        }
+      }
+
+      if (unhealthyRoomIds.isEmpty || !mounted) return;
+
+      for (final roomId in unhealthyRoomIds) {
+        final session = _videoSessions[roomId];
+        final originalSession = originalSessionsByRoomId[roomId];
+        if (!identical(session, originalSession)) continue;
+        await _disposeVideoSession(roomId, notifyServer: false);
+      }
+
+      while (_syncInProgress && mounted) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      if (!mounted) return;
+      await _syncVideoSessions();
+    } finally {
+      _resumeRecoveryInProgress = false;
+    }
+  }
+
+  Future<bool> _isVideoSessionHealthy(
+    int roomId,
+    _VideoRoomSession session,
+  ) async {
+    if (!mounted || !identical(_videoSessions[roomId], session)) return true;
+    if (session.error != null) return false;
+    if (!session.isConnected) return false;
+    if (session.renderer.srcObject == null) return false;
+
+    final state = session.connectionState;
+    if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
+        state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+        state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+      return false;
+    }
+
+    final pc = session.peerConnection;
+    if (pc == null) return false;
+
+    final firstSnapshot = await _captureInboundVideoStats(pc);
+    if (!mounted || !identical(_videoSessions[roomId], session)) return true;
+    if (firstSnapshot == null) {
+      // If stats are unavailable on this platform, leave the session alone.
+      return true;
+    }
+    if (!firstSnapshot.hasAnyMedia) return false;
+
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    if (!mounted || !identical(_videoSessions[roomId], session)) return true;
+
+    final secondSnapshot = await _captureInboundVideoStats(pc);
+    if (secondSnapshot == null) return true;
+
+    return secondSnapshot.hasProgressSince(firstSnapshot);
+  }
+
+  Future<_InboundVideoStatsSnapshot?> _captureInboundVideoStats(
+    RTCPeerConnection pc,
+  ) async {
+    try {
+      final stats = await pc.getStats();
+      double bytesReceived = 0;
+      double packetsReceived = 0;
+      double framesDecoded = 0;
+      var foundVideoReport = false;
+
+      for (final report in stats) {
+        if (!_isInboundVideoReport(report)) continue;
+        foundVideoReport = true;
+        bytesReceived += _toDouble(report.values['bytesReceived']);
+        packetsReceived += _toDouble(report.values['packetsReceived']);
+        framesDecoded +=
+            _toDouble(report.values['framesDecoded']) +
+            _toDouble(report.values['framesReceived']);
+      }
+
+      if (!foundVideoReport) return null;
+      return _InboundVideoStatsSnapshot(
+        bytesReceived: bytesReceived,
+        packetsReceived: packetsReceived,
+        framesDecoded: framesDecoded,
+      );
+    } catch (e) {
+      debugPrint('Error reading inbound video stats: $e');
+      return null;
+    }
+  }
+
+  bool _isInboundVideoReport(StatsReport report) {
+    if (report.type != 'inbound-rtp') return false;
+
+    final values = report.values;
+    final mediaType = (values['kind'] ?? values['mediaType'] ?? '')
+        .toString()
+        .toLowerCase();
+    if (mediaType.isNotEmpty) {
+      return mediaType == 'video';
+    }
+
+    return values.containsKey('framesDecoded') ||
+        values.containsKey('framesReceived') ||
+        values.containsKey('frameWidth') ||
+        values.containsKey('frameHeight');
+  }
+
+  double _toDouble(Object? value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0;
+    return 0;
   }
 
   @override
@@ -1211,7 +1348,29 @@ class _VideoRoomSession {
   bool remoteDescriptionSet = false;
   bool isLoading = true;
   bool isConnected = false;
+  RTCPeerConnectionState? connectionState;
   String? error;
 
   _VideoRoomSession({required this.renderer});
+}
+
+class _InboundVideoStatsSnapshot {
+  final double bytesReceived;
+  final double packetsReceived;
+  final double framesDecoded;
+
+  const _InboundVideoStatsSnapshot({
+    required this.bytesReceived,
+    required this.packetsReceived,
+    required this.framesDecoded,
+  });
+
+  bool get hasAnyMedia =>
+      bytesReceived > 0 || packetsReceived > 0 || framesDecoded > 0;
+
+  bool hasProgressSince(_InboundVideoStatsSnapshot previous) {
+    return bytesReceived > previous.bytesReceived ||
+        packetsReceived > previous.packetsReceived ||
+        framesDecoded > previous.framesDecoded;
+  }
 }

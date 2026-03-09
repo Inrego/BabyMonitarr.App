@@ -18,7 +18,6 @@ import '../theme/app_theme.dart';
 import '../utils/room_icons.dart';
 import '../services/pip_service.dart';
 import '../widgets/coach_mark_overlay.dart';
-import '../widgets/live_indicator.dart';
 import '../widgets/zoomable_video_view.dart';
 import 'monitor_detail_screen.dart';
 import 'monitor_settings_screen.dart';
@@ -1081,7 +1080,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     required bool muted,
     required AudioProvider audio,
   }) {
-    final isLive = listening || (session?.isConnected ?? false);
     final canListen = _canStartAudioForRoom(room);
     final roomAudio = audio.snapshotForRoom(room.id);
     final level = listening ? roomAudio.currentLevel?.level : null;
@@ -1148,8 +1146,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              LiveIndicator(isLive: isLive),
             ],
           ),
           const SizedBox(height: 10),

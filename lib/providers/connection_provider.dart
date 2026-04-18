@@ -35,6 +35,10 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   final Map<int, _AudioRoomSession> _audioSessions = <int, _AudioRoomSession>{};
   Timer? _watchdogTimer;
 
+  Timer? _signalRReconnectTimer;
+  int _signalRReconnectAttempts = 0;
+  bool _signalRReconnectInFlight = false;
+
   StreamSubscription? _signalRStateSub;
   StreamSubscription? _iceCandidateSub;
 
@@ -104,6 +108,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
 
       _intentionalDisconnect = false;
+      _stopSignalRReconnectLoop();
       _updateState(MonitorConnectionState.connecting);
       _cancelSignalRSubscriptions();
 
@@ -129,6 +134,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> disconnect() {
     return _runSerialized(() async {
       _intentionalDisconnect = true;
+      _stopSignalRReconnectLoop();
       await _stopAllListeningInternal(resetAudioProvider: true);
       _cancelSignalRSubscriptions();
       try {
@@ -414,6 +420,57 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     _watchdogTimer = null;
   }
 
+  void _ensureSignalRReconnectLoop() {
+    if (_disposed || _intentionalDisconnect) return;
+    if (_signalR.isConnected) return;
+    final serverUrl = _settingsProvider?.serverUrl;
+    if (serverUrl == null || serverUrl.trim().isEmpty) return;
+    if (_signalRReconnectTimer != null || _signalRReconnectInFlight) return;
+    _scheduleNextSignalRReconnectAttempt();
+  }
+
+  void _scheduleNextSignalRReconnectAttempt() {
+    _signalRReconnectTimer?.cancel();
+    final delayMs = SignalRService.reconnectDelayForAttempt(
+      _signalRReconnectAttempts,
+    );
+    _signalRReconnectTimer = Timer(
+      Duration(milliseconds: delayMs),
+      () => unawaited(_attemptSignalRReconnect()),
+    );
+  }
+
+  Future<void> _attemptSignalRReconnect() async {
+    _signalRReconnectTimer = null;
+    if (_disposed || _intentionalDisconnect || _signalR.isConnected) {
+      _stopSignalRReconnectLoop();
+      return;
+    }
+    _signalRReconnectInFlight = true;
+    _signalRReconnectAttempts++;
+    try {
+      await _runSerialized(() async {
+        if (_disposed || _intentionalDisconnect || _signalR.isConnected) return;
+        await _reconnectSignalRPreservingSessions();
+      });
+    } catch (e) {
+      debugPrint('SignalR reconnect attempt failed: $e');
+    } finally {
+      _signalRReconnectInFlight = false;
+    }
+    if (_signalR.isConnected) {
+      _stopSignalRReconnectLoop();
+    } else if (!_disposed && !_intentionalDisconnect) {
+      _scheduleNextSignalRReconnectAttempt();
+    }
+  }
+
+  void _stopSignalRReconnectLoop() {
+    _signalRReconnectTimer?.cancel();
+    _signalRReconnectTimer = null;
+    _signalRReconnectAttempts = 0;
+  }
+
   Future<void> _onWatchdogTick() async {
     if (_disposed || _intentionalDisconnect) return;
     if (_audioSessions.isEmpty) {
@@ -568,6 +625,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
           if (isListening) {
             _startWatchdog();
           }
+          _ensureSignalRReconnectLoop();
           return;
         }
       }
@@ -608,6 +666,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (_audioSessions.isNotEmpty) {
         _startWatchdog();
       }
+      _ensureSignalRReconnectLoop();
       return;
     }
 
@@ -615,6 +674,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       for (final session in _audioSessions.values) {
         session.signalRDisconnectedAt = null;
       }
+      _stopSignalRReconnectLoop();
       _updateState(MonitorConnectionState.connected);
       if (_audioSessions.isNotEmpty) {
         _startWatchdog();
@@ -847,6 +907,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _stopWatchdog();
+    _stopSignalRReconnectLoop();
     unawaited(_notification.stopMonitoringServiceNotification());
     _cancelSignalRSubscriptions();
     for (final session in _audioSessions.values) {

@@ -204,9 +204,14 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> stopListeningToRoom(int roomId) {
-    return _runSerialized(
-      () => _stopListeningToRoomInternal(roomId, resetAudioProvider: true),
-    );
+    // Sync phase runs OUTSIDE `_runSerialized` so the UI flips, alerts stop
+    // firing, and audio goes silent at button-press time regardless of what
+    // else is queued (watchdog recovery, SignalR reconnect, a pending start).
+    final session = _stopListeningSyncPhase(roomId, resetAudioProvider: true);
+    if (session == null) return Future.value();
+    // Heavy teardown stays serialized so a subsequent start/connect/disconnect
+    // sees a fully closed peer connection.
+    return _runSerialized(() => _stopListeningAsyncPhase(roomId, session));
   }
 
   Future<void> stopListening() {
@@ -265,12 +270,20 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     session.audioLevelSub = webRtc.dataChannelHandler.audioLevels.listen((
       level,
     ) {
+      // Drop buffered events that race with a stop: sub.cancel() on a
+      // broadcast stream doesn't drop already-scheduled deliveries.
+      if (session.stopped || !identical(_audioSessions[roomId], session)) {
+        return;
+      }
       _markAudioPacketReceived(session);
       _audioProvider?.onAudioLevelForRoom(roomId, level);
     });
     session.soundAlertSub = webRtc.dataChannelHandler.soundAlerts.listen((
       alert,
     ) {
+      if (session.stopped || !identical(_audioSessions[roomId], session)) {
+        return;
+      }
       _markAudioPacketReceived(session);
       _audioProvider?.onSoundAlertForRoom(roomId, alert);
       final roomName = _roomProvider?.roomById(roomId)?.name ?? 'Room $roomId';
@@ -298,13 +311,52 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     await _audioSession.ensureConfigured();
   }
 
-  Future<void> _stopListeningToRoomInternal(
+  /// Synchronous half of stopping a room. Pulls the session out of the active
+  /// map, cancels its subscriptions, mutes its remote audio track, and flips
+  /// UI state — all with zero awaits. Returns the removed session so the
+  /// caller can hand it to [_stopListeningAsyncPhase] for heavy teardown, or
+  /// `null` if the room wasn't active.
+  _AudioRoomSession? _stopListeningSyncPhase(
     int roomId, {
     required bool resetAudioProvider,
-  }) async {
-    final session = _audioSessions[roomId];
-    if (session == null) return;
+  }) {
+    final session = _audioSessions.remove(roomId);
+    if (session == null) return null;
 
+    session.stopped = true;
+
+    session.webRtcStateSub?.cancel();
+    session.webRtcStateSub = null;
+    session.qualitySub?.cancel();
+    session.qualitySub = null;
+    session.audioLevelSub?.cancel();
+    session.audioLevelSub = null;
+    session.soundAlertSub?.cancel();
+    session.soundAlertSub = null;
+
+    // Mute remote audio synchronously via the cached track refs — do NOT rely
+    // on the async getReceivers() path, which races pc.close().
+    session.webRtc.setAudioEnabled(false);
+
+    if (resetAudioProvider) {
+      _audioProvider?.resetRoom(roomId);
+    }
+    _updateState(
+      _audioSessions.isEmpty
+          ? MonitorConnectionState.connected
+          : _connectionInfo.state,
+    );
+    notifyListeners();
+    return session;
+  }
+
+  /// Background half of stopping a room: tears down the SignalR stream, the
+  /// peer connection, platform audio routing, and persists state. Must be run
+  /// serialized so a subsequent start/connect/disconnect sees a clean slate.
+  Future<void> _stopListeningAsyncPhase(
+    int roomId,
+    _AudioRoomSession session,
+  ) async {
     try {
       await _signalR.stopAudioStream(roomId);
     } catch (e) {
@@ -313,8 +365,11 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       );
     }
 
-    await _disposeSession(roomId);
-    _audioSessions.remove(roomId);
+    try {
+      await session.dispose();
+    } catch (e) {
+      debugPrint('Stop listening room $roomId: failed to dispose session: $e');
+    }
 
     if (_audioSessions.isEmpty) {
       try {
@@ -324,18 +379,24 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    if (resetAudioProvider) {
-      _audioProvider?.resetRoom(roomId);
-    }
-
     await _persistActiveListeningRooms();
     await _refreshMonitoringNotification();
-    _updateState(
-      _audioSessions.isEmpty
-          ? MonitorConnectionState.connected
-          : _connectionInfo.state,
+  }
+
+  /// Serialized stop used by internal callers (disconnect, stop-all, error
+  /// recovery) that already run inside [_runSerialized]. Keeps the legacy
+  /// "sync teardown + awaited heavy work in the same future" shape so the
+  /// existing call sites don't need to change.
+  Future<void> _stopListeningToRoomInternal(
+    int roomId, {
+    required bool resetAudioProvider,
+  }) async {
+    final session = _stopListeningSyncPhase(
+      roomId,
+      resetAudioProvider: resetAudioProvider,
     );
-    notifyListeners();
+    if (session == null) return;
+    await _stopListeningAsyncPhase(roomId, session);
   }
 
   Future<void> _stopAllListeningInternal({
@@ -926,6 +987,10 @@ class _AudioRoomSession {
   bool restoringAudioAfterReconnect = false;
   bool watchdogRecoveryRunning = false;
   bool audioMuted = false;
+  // Set to true by the stop path's sync phase so buffered broadcast-stream
+  // events arriving between sub.cancel() and actual unsubscribe can't
+  // re-trigger notifications, vibration, VU meters, or alert state.
+  bool stopped = false;
 
   DateTime? lastAudioPacketAt;
   DateTime? lastMediaHeartbeatAt;

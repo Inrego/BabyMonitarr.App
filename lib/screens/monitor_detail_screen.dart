@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
@@ -239,30 +240,21 @@ class _MonitorDetailScreenState extends State<MonitorDetailScreen> {
 
   Widget _stopMonitoringButton(BuildContext context) {
     return FilledButton.icon(
-      onPressed: () async {
+      onPressed: () {
         final connection = context.read<ConnectionProvider>();
         final settings = context.read<SettingsProvider>();
         if (connection.isListeningToRoom(room.id)) {
-          try {
-            await connection.stopListeningToRoom(room.id);
-          } catch (e) {
-            if (!context.mounted) return;
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('Audio failed to stop: $e')));
-            return;
-          }
-        }
-        try {
-          await settings.removeMonitoringRoom(room.id);
-        } catch (e) {
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to stop monitoring: $e')),
+          unawaited(
+            connection.stopListeningToRoom(room.id).catchError((e) {
+              debugPrint('Stop listening failed for room ${room.id}: $e');
+            }),
           );
-          return;
         }
-        if (!context.mounted) return;
+        unawaited(
+          settings.removeMonitoringRoom(room.id).catchError((e) {
+            debugPrint('Remove monitoring room failed for ${room.id}: $e');
+          }),
+        );
         Navigator.pop(context);
       },
       style: FilledButton.styleFrom(

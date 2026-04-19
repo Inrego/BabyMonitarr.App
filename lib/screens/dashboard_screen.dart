@@ -455,11 +455,15 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Future<void> _onListenPressed(Room room) async {
     final connection = context.read<ConnectionProvider>();
+    if (connection.isListeningToRoom(room.id)) {
+      unawaited(
+        connection.stopListeningToRoom(room.id).catchError((e) {
+          debugPrint('Stop listening failed for room ${room.id}: $e');
+        }),
+      );
+      return;
+    }
     try {
-      if (connection.isListeningToRoom(room.id)) {
-        await connection.stopListeningToRoom(room.id);
-        return;
-      }
       await connection.startListeningToRoom(room.id);
     } catch (e) {
       if (!mounted) return;
@@ -532,14 +536,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     await _syncVideoSessions();
 
     if (connection.isListeningToRoom(roomId)) {
-      try {
-        await connection.stopListeningToRoom(roomId);
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Audio failed to stop: $e')));
-      }
+      unawaited(
+        connection.stopListeningToRoom(roomId).catchError((e) {
+          debugPrint('Stop listening failed for room $roomId: $e');
+        }),
+      );
     }
   }
 

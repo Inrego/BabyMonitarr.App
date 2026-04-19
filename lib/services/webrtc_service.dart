@@ -9,6 +9,10 @@ class WebRtcService {
   final DataChannelHandler _dataChannelHandler;
   final List<RTCIceCandidate> _pendingCandidates = [];
   final Set<String> _seenRemoteCandidateKeys = <String>{};
+  // Cache remote audio tracks as they arrive via onTrack so we can mute them
+  // synchronously from the stop path — `getReceivers()` is async and would race
+  // with pc.close().
+  final List<MediaStreamTrack> _remoteAudioTracks = [];
   bool _remoteDescriptionSet = false;
   bool _audioEnabled = true;
   Timer? _statsTimer;
@@ -55,7 +59,11 @@ class WebRtcService {
 
     _peerConnection!.onTrack = (event) {
       debugPrint('WebRTC: Received track: ${event.track.kind}');
-      // Audio tracks auto-play through device speaker
+      // Audio tracks auto-play through device speaker. Cache the track so we
+      // can disable it synchronously from the stop path.
+      if (event.track.kind == 'audio') {
+        _remoteAudioTracks.add(event.track);
+      }
     };
 
     _peerConnection!.onDataChannel = (channel) {
@@ -129,7 +137,24 @@ class WebRtcService {
 
   void setAudioEnabled(bool enabled) {
     _audioEnabled = enabled;
+    // Apply synchronously to cached remote tracks so playback flips immediately
+    // without waiting for `getReceivers()` to resolve. Also run the async path
+    // as a belt-and-braces fallback in case onTrack didn't fire (e.g. audio
+    // track arrived via a receiver without a track event).
+    _applyAudioEnabledSync(enabled);
     _setAudioEnabled(enabled);
+  }
+
+  /// Synchronous mute/unmute on the cached remote audio tracks. Safe to call
+  /// from a stop path that must not await before flipping audio state.
+  void _applyAudioEnabledSync(bool enabled) {
+    for (final track in _remoteAudioTracks) {
+      try {
+        track.enabled = enabled;
+      } catch (e) {
+        debugPrint('Error toggling remote audio track: $e');
+      }
+    }
   }
 
   Future<void> _setAudioEnabled(bool enabled) async {
@@ -188,6 +213,7 @@ class WebRtcService {
     _remoteDescriptionSet = false;
     _pendingCandidates.clear();
     _seenRemoteCandidateKeys.clear();
+    _remoteAudioTracks.clear();
 
     final pc = _peerConnection;
     _peerConnection = null;

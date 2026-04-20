@@ -1,8 +1,10 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:logging/logging.dart';
 import 'data_channel_handler.dart';
 import '../models/webrtc_client_config.dart';
+
+final _log = Logger('WebRtcService');
 
 class WebRtcService {
   RTCPeerConnection? _peerConnection;
@@ -46,6 +48,7 @@ class WebRtcService {
     _peerConnection = await createPeerConnection(config);
 
     _peerConnection!.onConnectionState = (state) {
+      _log.info('PeerConnection state: ${state.name}');
       _connectionStateController.add(state);
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _startStatsPolling();
@@ -58,16 +61,14 @@ class WebRtcService {
     };
 
     _peerConnection!.onTrack = (event) {
-      debugPrint('WebRTC: Received track: ${event.track.kind}');
-      // Audio tracks auto-play through device speaker. Cache the track so we
-      // can disable it synchronously from the stop path.
+      _log.info('Received track: ${event.track.kind}');
       if (event.track.kind == 'audio') {
         _remoteAudioTracks.add(event.track);
       }
     };
 
     _peerConnection!.onDataChannel = (channel) {
-      debugPrint('WebRTC: Data channel opened: ${channel.label}');
+      _log.info('Data channel opened: ${channel.label}');
       channel.onMessage = (message) {
         _dataChannelHandler.handleMessage(message.text);
       };
@@ -107,13 +108,13 @@ class WebRtcService {
         : 'candidate:$candidate';
 
     if (isLoopbackIceCandidate(normalized)) {
-      debugPrint('WebRTC: Dropping loopback ICE candidate: $normalized');
+      _log.fine('Dropping loopback ICE candidate: $normalized');
       return;
     }
 
     final candidateKey = _buildCandidateKey(normalized, sdpMid, sdpMLineIndex);
     if (!_seenRemoteCandidateKeys.add(candidateKey)) {
-      debugPrint('WebRTC: Dropping duplicate ICE candidate');
+      _log.fine('Dropping duplicate ICE candidate');
       return;
     }
 
@@ -125,8 +126,8 @@ class WebRtcService {
       } else {
         _pendingCandidates.add(iceCandidate);
       }
-    } catch (e) {
-      debugPrint('WebRTC: Failed to add ICE candidate: $e');
+    } catch (e, st) {
+      _log.warning('Failed to add ICE candidate', e, st);
     }
   }
 
@@ -151,8 +152,8 @@ class WebRtcService {
     for (final track in _remoteAudioTracks) {
       try {
         track.enabled = enabled;
-      } catch (e) {
-        debugPrint('Error toggling remote audio track: $e');
+      } catch (e, st) {
+        _log.warning('Error toggling remote audio track', e, st);
       }
     }
   }
@@ -166,8 +167,8 @@ class WebRtcService {
       )) {
         receiver.track!.enabled = enabled;
       }
-    } catch (e) {
-      debugPrint('Error setting audio enabled: $e');
+    } catch (e, st) {
+      _log.warning('Error setting audio enabled', e, st);
     }
   }
 
@@ -228,20 +229,20 @@ class WebRtcService {
       pc.onTrack = null;
       pc.onDataChannel = null;
       pc.onIceCandidate = null;
-    } catch (e) {
-      debugPrint('Error clearing peer connection callbacks: $e');
+    } catch (e, st) {
+      _log.warning('Error clearing peer connection callbacks', e, st);
     }
 
     try {
       await pc.close();
-    } catch (e) {
-      debugPrint('Error closing peer connection: $e');
+    } catch (e, st) {
+      _log.warning('Error closing peer connection', e, st);
     }
 
     try {
       await pc.dispose();
-    } catch (e) {
-      debugPrint('Error disposing peer connection: $e');
+    } catch (e, st) {
+      _log.warning('Error disposing peer connection', e, st);
     }
 
     _closing = false;

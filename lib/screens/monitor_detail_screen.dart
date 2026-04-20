@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:logging/logging.dart';
 import 'package:provider/provider.dart';
 import '../models/audio_state.dart';
 import '../models/room.dart';
@@ -14,6 +15,8 @@ import '../widgets/live_indicator.dart';
 import '../widgets/sound_level_graph.dart';
 import '../widgets/status_pill.dart';
 import '../widgets/zoomable_video_view.dart';
+
+final _log = Logger('MonitorDetailScreen');
 
 class MonitorDetailScreen extends StatefulWidget {
   final Room room;
@@ -245,14 +248,14 @@ class _MonitorDetailScreenState extends State<MonitorDetailScreen> {
         final settings = context.read<SettingsProvider>();
         if (connection.isListeningToRoom(room.id)) {
           unawaited(
-            connection.stopListeningToRoom(room.id).catchError((e) {
-              debugPrint('Stop listening failed for room ${room.id}: $e');
+            connection.stopListeningToRoom(room.id).catchError((e, st) {
+              _log.warning('Stop listening failed for room ${room.id}', e, st);
             }),
           );
         }
         unawaited(
-          settings.removeMonitoringRoom(room.id).catchError((e) {
-            debugPrint('Remove monitoring room failed for ${room.id}: $e');
+          settings.removeMonitoringRoom(room.id).catchError((e, st) {
+            _log.warning('Remove monitoring room failed for ${room.id}', e, st);
           }),
         );
         Navigator.pop(context);

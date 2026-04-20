@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:signalr_netcore/iretry_policy.dart';
 import 'package:signalr_netcore/signalr_client.dart';
@@ -11,6 +10,8 @@ import '../models/remote_video_ice_candidate.dart';
 import '../models/room.dart';
 import '../models/webrtc_client_config.dart';
 
+final _log = Logger('SignalRService');
+
 class SignalRService {
   static const int _defaultKeepAliveMs = 10000;
   static const int _defaultServerTimeoutMs = 35000;
@@ -18,7 +19,6 @@ class SignalRService {
   HubConnection? _connection;
   WebRtcClientConfig? _cachedWebRtcConfig;
   bool _disposed = false;
-  StreamSubscription<LogRecord>? _logSubscription;
 
   final _connectionStateController =
       StreamController<HubConnectionState>.broadcast();
@@ -47,11 +47,6 @@ class SignalRService {
     final hubUrl = _normalizeHubUrl(serverUrl);
 
     final logger = Logger('SignalR');
-    _logSubscription?.cancel();
-    _logSubscription = logger.onRecord.listen(
-      (record) =>
-          debugPrint('[SignalR] ${record.level.name}: ${record.message}'),
-    );
 
     _connection = HubConnectionBuilder()
         .withUrl(
@@ -97,9 +92,7 @@ class SignalRService {
         arguments is List ? arguments : null,
       );
       if (parsed == null) {
-        debugPrint(
-          '[SignalR] WARN: Ignoring malformed ReceiveAudioIceCandidate payload.',
-        );
+        _log.warning('Ignoring malformed ReceiveAudioIceCandidate payload');
         return;
       }
       _iceCandidateController.add(parsed);
@@ -110,9 +103,7 @@ class SignalRService {
         arguments is List ? arguments : null,
       );
       if (parsed == null) {
-        debugPrint(
-          '[SignalR] WARN: Ignoring malformed ReceiveVideoIceCandidate payload.',
-        );
+        _log.warning('Ignoring malformed ReceiveVideoIceCandidate payload');
         return;
       }
       _videoIceCandidateController.add(parsed);
@@ -185,8 +176,8 @@ class SignalRService {
     if (!isConnected) return;
     try {
       await _connection!.invoke('StopAudioStream', args: [roomId]);
-    } catch (e) {
-      debugPrint('Error stopping audio stream for room $roomId: $e');
+    } catch (e, st) {
+      _log.warning('Error stopping audio stream for room $roomId', e, st);
     }
   }
 
@@ -226,8 +217,8 @@ class SignalRService {
     if (!isConnected) return;
     try {
       await _connection!.invoke('StopVideoStream', args: [roomId]);
-    } catch (e) {
-      debugPrint('Error stopping video stream for room $roomId: $e');
+    } catch (e, st) {
+      _log.warning('Error stopping video stream for room $roomId', e, st);
     }
   }
 
@@ -351,20 +342,16 @@ class SignalRService {
   Future<void> disconnect() async {
     try {
       await _connection?.stop();
-    } catch (e) {
-      debugPrint('Error disconnecting SignalR: $e');
+    } catch (e, st) {
+      _log.warning('Error disconnecting SignalR', e, st);
     }
     _connection = null;
     _cachedWebRtcConfig = null;
-    _logSubscription?.cancel();
-    _logSubscription = null;
   }
 
   void dispose() {
     _disposed = true;
     disconnect();
-    _logSubscription?.cancel();
-    _logSubscription = null;
     _connectionStateController.close();
     _iceCandidateController.close();
     _videoIceCandidateController.close();

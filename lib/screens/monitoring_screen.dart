@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:logging/logging.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
@@ -15,6 +16,8 @@ import '../widgets/status_pill.dart';
 import '../widgets/action_button.dart';
 import '../widgets/connection_status_bar.dart';
 import 'settings_screen.dart';
+
+final _log = Logger('MonitoringScreen');
 
 class MonitoringScreen extends StatefulWidget {
   const MonitoringScreen({super.key});
@@ -79,8 +82,8 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
       await _lifecycleChannel.invokeMethod<void>(
         'cleanupWebRtcOrientationReceiver',
       );
-    } catch (e) {
-      debugPrint('Failed to cleanup native WebRTC receiver: $e');
+    } catch (e, st) {
+      _log.warning('Failed to cleanup native WebRTC receiver', e, st);
     }
   }
 

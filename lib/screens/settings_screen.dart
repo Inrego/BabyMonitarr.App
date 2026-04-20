@@ -1,5 +1,9 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../services/app_logger.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../providers/settings_provider.dart';
@@ -236,6 +240,9 @@ class SettingsScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 24),
+
+              _DiagnosticsSection(),
               const SizedBox(height: 32),
             ],
           );
@@ -485,5 +492,94 @@ class _AlertThresholdSliderState extends State<_AlertThresholdSlider> {
         ],
       ),
     );
+  }
+}
+
+class _DiagnosticsSection extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final logDir = AppLogger.logDirectory?.path;
+    final adbCommand = logDir == null || !Platform.isAndroid
+        ? null
+        : 'adb pull "$logDir" ./logs';
+
+    return SettingsSection(
+      title: 'DIAGNOSTICS',
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.description_outlined,
+                    size: 20,
+                    color: AppColors.primaryWarm,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text('Log directory', style: AppTheme.caption),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                logDir ?? 'Unavailable',
+                style: AppTheme.body.copyWith(
+                  color: AppColors.textPrimary,
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  if (logDir != null)
+                    TextButton.icon(
+                      onPressed: () => _copy(context, logDir, 'Path copied'),
+                      icon: const Icon(Icons.copy, size: 16),
+                      label: const Text('Copy path'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.tealAccent,
+                        textStyle: AppTheme.caption.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  if (adbCommand != null)
+                    TextButton.icon(
+                      onPressed: () =>
+                          _copy(context, adbCommand, 'adb command copied'),
+                      icon: const Icon(Icons.terminal, size: 16),
+                      label: const Text('Copy adb pull'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.tealAccent,
+                        textStyle: AppTheme.caption.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Logs rotate daily; the last 7 days are kept.',
+                style: AppTheme.caption,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _copy(BuildContext context, String text, String message) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }

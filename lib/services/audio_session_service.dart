@@ -1,5 +1,7 @@
-import 'package:flutter/widgets.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:logging/logging.dart';
+
+final _log = Logger('AudioSessionService');
 
 class AudioSessionService {
   static final AndroidAudioConfiguration _androidMonitoringConfig =
@@ -67,8 +69,8 @@ class AudioSessionService {
         );
         await Helper.setAppleAudioIOMode(AppleAudioIOMode.remoteOnly);
       }
-    } catch (e) {
-      debugPrint('AudioSessionService: failed to configure audio: $e');
+    } catch (e, st) {
+      _log.warning('Failed to configure audio', e, st);
     }
   }
 

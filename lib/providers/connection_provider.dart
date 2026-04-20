@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:logging/logging.dart';
 import '../models/audio_state.dart';
 import '../models/connection_state.dart';
 import '../models/remote_ice_candidate.dart';
@@ -12,6 +13,8 @@ import '../services/webrtc_service.dart';
 import 'audio_provider.dart';
 import 'room_provider.dart';
 import 'settings_provider.dart';
+
+final _log = Logger('ConnectionProvider');
 
 class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const Duration _watchdogInterval = Duration(seconds: 8);
@@ -76,8 +79,8 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       await _notification.initialize();
       await _vibration.initialize();
       await _notification.requestPermission();
-    } catch (e) {
-      debugPrint('Service initialization error: $e');
+    } catch (e, st) {
+      _log.severe('Service initialization error', e, st);
     }
   }
 
@@ -98,6 +101,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     return _runSerialized(() async {
       if (_disposed) return;
 
+      _log.info('Connect requested');
       final normalizedUrl = SignalRService.normalizeServerUrl(serverUrl);
       if (normalizedUrl.isEmpty) {
         _updateState(
@@ -133,19 +137,20 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> disconnect() {
     return _runSerialized(() async {
+      _log.info('Disconnect requested');
       _intentionalDisconnect = true;
       _stopSignalRReconnectLoop();
       await _stopAllListeningInternal(resetAudioProvider: true);
       _cancelSignalRSubscriptions();
       try {
         await _signalR.disconnect();
-      } catch (e) {
-        debugPrint('Disconnect: failed to disconnect SignalR: $e');
+      } catch (e, st) {
+        _log.warning('Disconnect: failed to disconnect SignalR', e, st);
       }
       try {
         await _notification.cancelAll();
-      } catch (e) {
-        debugPrint('Disconnect: failed to cancel notifications: $e');
+      } catch (e, st) {
+        _log.warning('Disconnect: failed to cancel notifications', e, st);
       }
       _updateState(MonitorConnectionState.disconnected);
     });
@@ -172,6 +177,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
+      _log.info('Start listening to room $roomId');
       final session = _createSession(roomId);
       _audioSessions[roomId] = session;
 
@@ -252,8 +258,8 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (!_signalR.isConnected || _settingsProvider == null) return;
     try {
       await _signalR.updateAudioSettings(_settingsProvider!.audioSettings);
-    } catch (e) {
-      debugPrint('Failed to sync audio settings: $e');
+    } catch (e, st) {
+      _log.warning('Failed to sync audio settings', e, st);
     }
   }
 
@@ -323,6 +329,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     final session = _audioSessions.remove(roomId);
     if (session == null) return null;
 
+    _log.info('Stop listening to room $roomId');
     session.stopped = true;
 
     session.webRtcStateSub?.cancel();
@@ -359,23 +366,33 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   ) async {
     try {
       await _signalR.stopAudioStream(roomId);
-    } catch (e) {
-      debugPrint(
-        'Stop listening room $roomId: failed to stop server stream: $e',
+    } catch (e, st) {
+      _log.warning(
+        'Stop listening room $roomId: failed to stop server stream',
+        e,
+        st,
       );
     }
 
     try {
       await session.dispose();
-    } catch (e) {
-      debugPrint('Stop listening room $roomId: failed to dispose session: $e');
+    } catch (e, st) {
+      _log.warning(
+        'Stop listening room $roomId: failed to dispose session',
+        e,
+        st,
+      );
     }
 
     if (_audioSessions.isEmpty) {
       try {
         await Helper.clearAndroidCommunicationDevice();
-      } catch (e) {
-        debugPrint('Stop listening: failed to clear Android audio device: $e');
+      } catch (e, st) {
+        _log.warning(
+          'Stop listening: failed to clear Android audio device',
+          e,
+          st,
+        );
       }
     }
 
@@ -437,8 +454,8 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (settings == null) return;
     try {
       await settings.setActiveListeningRoomIds(_audioSessions.keys.toSet());
-    } catch (e) {
-      debugPrint('Failed to persist active listening room ids: $e');
+    } catch (e, st) {
+      _log.warning('Failed to persist active listening room ids', e, st);
     }
   }
 
@@ -514,8 +531,8 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         if (_disposed || _intentionalDisconnect || _signalR.isConnected) return;
         await _reconnectSignalRPreservingSessions();
       });
-    } catch (e) {
-      debugPrint('SignalR reconnect attempt failed: $e');
+    } catch (e, st) {
+      _log.warning('SignalR reconnect attempt failed', e, st);
     } finally {
       _signalRReconnectInFlight = false;
     }
@@ -626,6 +643,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
+    _log.info('Watchdog recovery for room $roomId');
     session.watchdogRecoveryRunning = true;
     session.lastRecoveryAttemptAt = now;
     try {
@@ -677,8 +695,8 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (!_signalR.isConnected) {
         try {
           await _reconnectSignalRPreservingSessions();
-        } catch (e) {
-          debugPrint('Failed to reconnect SignalR on resume: $e');
+        } catch (e, st) {
+          _log.warning('Failed to reconnect SignalR on resume', e, st);
           _updateState(
             MonitorConnectionState.failed,
             error: 'Failed to reconnect after resume: $e',
@@ -706,6 +724,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _onSignalRState(dynamic state) {
     if (_disposed || _intentionalDisconnect) return;
     final stateLabel = state.toString().toLowerCase();
+    _log.info('SignalR state: $state (rooms=${_audioSessions.length})');
 
     if (stateLabel.contains('reconnecting')) {
       for (final session in _audioSessions.values) {
@@ -847,8 +866,8 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         for (final session in _audioSessions.values) {
           session.webRtc.setAudioEnabled(!session.audioMuted);
         }
-      } catch (e) {
-        debugPrint('Failed to recover audio session on resume: $e');
+      } catch (e, st) {
+        _log.warning('Failed to recover audio session on resume', e, st);
       }
     });
   }
@@ -884,9 +903,11 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
             candidate.sdpMid,
             candidate.sdpMLineIndex,
           )
-          .catchError((Object e) {
-            debugPrint(
-              'Failed to send local ICE candidate for room $roomId: $e',
+          .catchError((Object e, StackTrace st) {
+            _log.warning(
+              'Failed to send local ICE candidate for room $roomId',
+              e,
+              st,
             );
           }),
     );
@@ -927,8 +948,12 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
             _refreshMonitoringNotification(
               reconnecting:
                   _connectionInfo.state != MonitorConnectionState.connected,
-            ).catchError((e) {
-              debugPrint('Failed to start monitoring foreground service: $e');
+            ).catchError((e, st) {
+              _log.warning(
+                'Failed to start monitoring foreground service',
+                e,
+                st,
+              );
             }),
           );
         }
@@ -936,8 +961,12 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       case AppLifecycleState.resumed:
         if (isListening) {
           unawaited(
-            _refreshMonitoringNotification().catchError((e) {
-              debugPrint('Failed to refresh monitoring foreground service: $e');
+            _refreshMonitoringNotification().catchError((e, st) {
+              _log.warning(
+                'Failed to refresh monitoring foreground service',
+                e,
+                st,
+              );
             }),
           );
         } else {
@@ -952,8 +981,12 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
             _refreshMonitoringNotification(
               reconnecting:
                   _connectionInfo.state != MonitorConnectionState.connected,
-            ).catchError((e) {
-              debugPrint('Failed to keep monitoring service on detach: $e');
+            ).catchError((e, st) {
+              _log.warning(
+                'Failed to keep monitoring service on detach',
+                e,
+                st,
+              );
             }),
           );
         }

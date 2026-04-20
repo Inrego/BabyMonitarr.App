@@ -1,5 +1,9 @@
+import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:logging/logging.dart';
 import 'package:provider/provider.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
@@ -7,17 +11,39 @@ import 'providers/connection_provider.dart';
 import 'providers/audio_provider.dart';
 import 'providers/room_provider.dart';
 import 'providers/settings_provider.dart';
+import 'services/app_logger.dart';
 import 'services/audio_session_service.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/dashboard_screen.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      await AppLogger.init();
 
-  final audioSession = AudioSessionService();
-  await audioSession.configureForMediaPlayback();
+      FlutterError.onError = (details) {
+        Logger('FlutterError').severe(
+          details.exceptionAsString(),
+          details.exception,
+          details.stack,
+        );
+        FlutterError.presentError(details);
+      };
+      PlatformDispatcher.instance.onError = (error, stack) {
+        Logger('PlatformDispatcher').severe('Uncaught platform error', error, stack);
+        return true;
+      };
 
-  runApp(BabyMonitarrApp(audioSession: audioSession));
+      final audioSession = AudioSessionService();
+      await audioSession.configureForMediaPlayback();
+
+      runApp(BabyMonitarrApp(audioSession: audioSession));
+    },
+    (error, stack) {
+      Logger('Zone').severe('Uncaught zone error', error, stack);
+    },
+  );
 }
 
 class BabyMonitarrApp extends StatelessWidget {

@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:logging/logging.dart';
 import 'package:provider/provider.dart';
 import 'package:signalr_netcore/signalr_client.dart';
 import '../models/audio_state.dart';
@@ -23,6 +24,8 @@ import '../widgets/zoomable_video_view.dart';
 import 'monitor_detail_screen.dart';
 import 'monitor_settings_screen.dart';
 import 'settings_screen.dart';
+
+final _log = Logger('DashboardScreen');
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -200,8 +203,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       for (final roomId in missingRoomIds) {
         try {
           await connection.startListeningToRoom(roomId);
-        } catch (e) {
-          debugPrint('Failed restoring active listening room $roomId: $e');
+        } catch (e, st) {
+          _log.warning('Failed restoring active listening room $roomId', e, st);
         }
       }
     } finally {
@@ -291,9 +294,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                 candidate.sdpMid,
                 candidate.sdpMLineIndex,
               )
-              .catchError((Object error) {
-                debugPrint(
-                  'Error sending room $roomId video ICE candidate: $error',
+              .catchError((Object error, StackTrace st) {
+                _log.warning(
+                  'Error sending room $roomId video ICE candidate',
+                  error,
+                  st,
                 );
               }),
         );
@@ -340,8 +345,12 @@ class _DashboardScreenState extends State<DashboardScreen>
         for (final candidate in session.pendingCandidates) {
           try {
             await pc.addCandidate(candidate);
-          } catch (e) {
-            debugPrint('Error adding queued room $roomId ICE candidate: $e');
+          } catch (e, st) {
+            _log.warning(
+              'Error adding queued room $roomId ICE candidate',
+              e,
+              st,
+            );
           }
         }
         session.pendingCandidates.clear();
@@ -371,9 +380,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     final pc = session.peerConnection;
     if (pc != null && session.remoteDescriptionSet) {
       unawaited(
-        pc.addCandidate(ice).catchError((Object error) {
-          debugPrint(
-            'Error adding room ${candidate.roomId} remote ICE candidate: $error',
+        pc.addCandidate(ice).catchError((Object error, StackTrace st) {
+          _log.warning(
+            'Error adding room ${candidate.roomId} remote ICE candidate',
+            error,
+            st,
           );
         }),
       );
@@ -457,8 +468,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     final connection = context.read<ConnectionProvider>();
     if (connection.isListeningToRoom(room.id)) {
       unawaited(
-        connection.stopListeningToRoom(room.id).catchError((e) {
-          debugPrint('Stop listening failed for room ${room.id}: $e');
+        connection.stopListeningToRoom(room.id).catchError((e, st) {
+          _log.warning('Stop listening failed for room ${room.id}', e, st);
         }),
       );
       return;
@@ -537,8 +548,8 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     if (connection.isListeningToRoom(roomId)) {
       unawaited(
-        connection.stopListeningToRoom(roomId).catchError((e) {
-          debugPrint('Stop listening failed for room $roomId: $e');
+        connection.stopListeningToRoom(roomId).catchError((e, st) {
+          _log.warning('Stop listening failed for room $roomId', e, st);
         }),
       );
     }
@@ -703,8 +714,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         packetsReceived: packetsReceived,
         framesDecoded: framesDecoded,
       );
-    } catch (e) {
-      debugPrint('Error reading inbound video stats: $e');
+    } catch (e, st) {
+      _log.warning('Error reading inbound video stats', e, st);
       return null;
     }
   }

@@ -269,6 +269,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final connection = context.read<ConnectionProvider>();
     if (!connection.isConnected || _videoSessions.containsKey(roomId)) return;
 
+    _log.info('Start video session room $roomId');
     final renderer = RTCVideoRenderer();
     await renderer.initialize();
     final session = _VideoRoomSession(renderer: renderer);
@@ -306,6 +307,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       pc.onTrack = (event) {
         if (event.track.kind != 'video') return;
+        _log.info('Received video track room $roomId');
         if (event.streams.isNotEmpty) {
           session.renderer.srcObject = event.streams.first;
         }
@@ -316,6 +318,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       };
 
       pc.onConnectionState = (state) {
+        _log.info('Video PC state room $roomId: ${state.name}');
         session.connectionState = state;
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
           session.isLoading = false;
@@ -355,7 +358,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         }
         session.pendingCandidates.clear();
       }
-    } catch (e) {
+    } catch (e, st) {
+      _log.warning('Start video session room $roomId failed', e, st);
       session.isLoading = false;
       session.isConnected = false;
       session.connectionState =
@@ -405,6 +409,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _scrollLockedPreviewRoomIds.remove(roomId);
     final session = _videoSessions.remove(roomId);
     if (session == null) return;
+    _log.info('Dispose video session room $roomId');
 
     if (notifyServer && connection.isConnected) {
       try {
@@ -616,30 +621,28 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     _resumeRecoveryInProgress = true;
     try {
-      final sessionEntries = _videoSessions.entries.toList(growable: false);
-      final originalSessionsByRoomId = <int, _VideoRoomSession>{
-        for (final entry in sessionEntries) entry.key: entry.value,
-      };
-      final healthChecks = await Future.wait(
-        sessionEntries.map(
-          (entry) => _isVideoSessionHealthy(entry.key, entry.value),
-        ),
-      );
+      // WebRTC stats can't see the failure mode that hits us here: the Android
+      // H.264 decoder keeps producing frames at full rate, but the renderer's
+      // SurfaceTexture/EGL binding goes stale across pause/resume and the OS
+      // discards ~13/15 frames before they reach the screen (renderFps=0-2 vs
+      // outputFps=15). bytesReceived / packetsReceived / framesDecoded all
+      // keep climbing, so any peer-connection-stat-based health check misses
+      // it. Rebuild every active session unconditionally — a fresh renderer
+      // means a fresh Surface.
+      final pipRoomId = _pipService.activePipRoomId;
+      final roomIdsToRebuild = _videoSessions.keys
+          .where((roomId) => roomId != pipRoomId)
+          .toList(growable: false);
+      if (roomIdsToRebuild.isEmpty) return;
+      _log.info('Resume: rebuilding video sessions: $roomIdsToRebuild');
 
-      final unhealthyRoomIds = <int>[];
-      for (var i = 0; i < sessionEntries.length; i++) {
-        if (!healthChecks[i]) {
-          unhealthyRoomIds.add(sessionEntries[i].key);
-        }
-      }
-
-      if (unhealthyRoomIds.isEmpty || !mounted) return;
-
-      for (final roomId in unhealthyRoomIds) {
-        final session = _videoSessions[roomId];
-        final originalSession = originalSessionsByRoomId[roomId];
-        if (!identical(session, originalSession)) continue;
-        await _disposeVideoSession(roomId, notifyServer: false);
+      for (final roomId in roomIdsToRebuild) {
+        if (!mounted) return;
+        // notifyServer: true so the backend tears down the old video stream
+        // before we start a new one — otherwise it accumulates orphaned
+        // sessions. stopVideoStream() is best-effort and already swallows
+        // errors, so a stale SignalR transport won't block the rebuild.
+        await _disposeVideoSession(roomId, notifyServer: true);
       }
 
       while (_syncInProgress && mounted) {
@@ -650,97 +653,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     } finally {
       _resumeRecoveryInProgress = false;
     }
-  }
-
-  Future<bool> _isVideoSessionHealthy(
-    int roomId,
-    _VideoRoomSession session,
-  ) async {
-    if (!mounted || !identical(_videoSessions[roomId], session)) return true;
-    if (session.error != null) return false;
-    if (!session.isConnected) return false;
-    if (session.renderer.srcObject == null) return false;
-
-    final state = session.connectionState;
-    if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
-        state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-        state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
-      return false;
-    }
-
-    final pc = session.peerConnection;
-    if (pc == null) return false;
-
-    final firstSnapshot = await _captureInboundVideoStats(pc);
-    if (!mounted || !identical(_videoSessions[roomId], session)) return true;
-    if (firstSnapshot == null) {
-      // If stats are unavailable on this platform, leave the session alone.
-      return true;
-    }
-    if (!firstSnapshot.hasAnyMedia) return false;
-
-    await Future<void>.delayed(const Duration(milliseconds: 1500));
-    if (!mounted || !identical(_videoSessions[roomId], session)) return true;
-
-    final secondSnapshot = await _captureInboundVideoStats(pc);
-    if (secondSnapshot == null) return true;
-
-    return secondSnapshot.hasProgressSince(firstSnapshot);
-  }
-
-  Future<_InboundVideoStatsSnapshot?> _captureInboundVideoStats(
-    RTCPeerConnection pc,
-  ) async {
-    try {
-      final stats = await pc.getStats();
-      double bytesReceived = 0;
-      double packetsReceived = 0;
-      double framesDecoded = 0;
-      var foundVideoReport = false;
-
-      for (final report in stats) {
-        if (!_isInboundVideoReport(report)) continue;
-        foundVideoReport = true;
-        bytesReceived += _toDouble(report.values['bytesReceived']);
-        packetsReceived += _toDouble(report.values['packetsReceived']);
-        framesDecoded +=
-            _toDouble(report.values['framesDecoded']) +
-            _toDouble(report.values['framesReceived']);
-      }
-
-      if (!foundVideoReport) return null;
-      return _InboundVideoStatsSnapshot(
-        bytesReceived: bytesReceived,
-        packetsReceived: packetsReceived,
-        framesDecoded: framesDecoded,
-      );
-    } catch (e, st) {
-      _log.warning('Error reading inbound video stats', e, st);
-      return null;
-    }
-  }
-
-  bool _isInboundVideoReport(StatsReport report) {
-    if (report.type != 'inbound-rtp') return false;
-
-    final values = report.values;
-    final mediaType = (values['kind'] ?? values['mediaType'] ?? '')
-        .toString()
-        .toLowerCase();
-    if (mediaType.isNotEmpty) {
-      return mediaType == 'video';
-    }
-
-    return values.containsKey('framesDecoded') ||
-        values.containsKey('framesReceived') ||
-        values.containsKey('frameWidth') ||
-        values.containsKey('frameHeight');
-  }
-
-  double _toDouble(Object? value) {
-    if (value is num) return value.toDouble();
-    if (value is String) return double.tryParse(value) ?? 0;
-    return 0;
   }
 
   @override
@@ -1379,23 +1291,3 @@ class _VideoRoomSession {
   _VideoRoomSession({required this.renderer});
 }
 
-class _InboundVideoStatsSnapshot {
-  final double bytesReceived;
-  final double packetsReceived;
-  final double framesDecoded;
-
-  const _InboundVideoStatsSnapshot({
-    required this.bytesReceived,
-    required this.packetsReceived,
-    required this.framesDecoded,
-  });
-
-  bool get hasAnyMedia =>
-      bytesReceived > 0 || packetsReceived > 0 || framesDecoded > 0;
-
-  bool hasProgressSince(_InboundVideoStatsSnapshot previous) {
-    return bytesReceived > previous.bytesReceived ||
-        packetsReceived > previous.packetsReceived ||
-        framesDecoded > previous.framesDecoded;
-  }
-}

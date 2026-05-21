@@ -45,7 +45,10 @@ class WebRtcService {
     final config = (clientConfig ?? WebRtcClientConfig.fallback())
         .toPeerConnectionConfig();
 
-    _peerConnection = await createPeerConnection(config);
+    _peerConnection = await _timed(
+      'createPeerConnection',
+      () => createPeerConnection(config),
+    );
 
     _peerConnection!.onConnectionState = (state) {
       _log.info('PeerConnection state: ${state.name}');
@@ -80,8 +83,11 @@ class WebRtcService {
       _peerConnection!.onIceCandidate = onIceCandidate;
     }
 
-    await _peerConnection!.setRemoteDescription(
-      RTCSessionDescription(sdpOffer, 'offer'),
+    await _timed(
+      'setRemoteDescription',
+      () => _peerConnection!.setRemoteDescription(
+        RTCSessionDescription(sdpOffer, 'offer'),
+      ),
     );
     _remoteDescriptionSet = true;
 
@@ -91,10 +97,32 @@ class WebRtcService {
     }
     _pendingCandidates.clear();
 
-    final answer = await _peerConnection!.createAnswer();
-    await _peerConnection!.setLocalDescription(answer);
+    final answer = await _timed(
+      'createAnswer',
+      () => _peerConnection!.createAnswer(),
+    );
+    await _timed(
+      'setLocalDescription',
+      () => _peerConnection!.setLocalDescription(answer),
+    );
 
     return answer.sdp!;
+  }
+
+  Future<T> _timed<T>(String stepName, Future<T> Function() action) async {
+    final sw = Stopwatch()..start();
+    try {
+      final result = await action();
+      _log.info('$stepName done in ${sw.elapsedMilliseconds}ms');
+      return result;
+    } catch (e, st) {
+      _log.warning(
+        '$stepName failed after ${sw.elapsedMilliseconds}ms',
+        e,
+        st,
+      );
+      rethrow;
+    }
   }
 
   Future<void> addIceCandidate(
@@ -234,13 +262,13 @@ class WebRtcService {
     }
 
     try {
-      await pc.close();
+      await _timed('pc.close', pc.close);
     } catch (e, st) {
       _log.warning('Error closing peer connection', e, st);
     }
 
     try {
-      await pc.dispose();
+      await _timed('pc.dispose', () => pc.dispose());
     } catch (e, st) {
       _log.warning('Error disposing peer connection', e, st);
     }

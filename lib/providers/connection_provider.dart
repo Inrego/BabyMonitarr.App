@@ -299,21 +299,64 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _startAudioWebRtcHandshake(_AudioRoomSession session) async {
-    await _audioSession.ensureConfigured();
-    final rtcConfig = await _signalR.getWebRtcConfig();
-    final sdpOffer = await _signalR.startAudioStream(session.roomId);
-    final sdpAnswer = await session.webRtc.handleOffer(
-      sdpOffer,
-      onIceCandidate: (candidate) =>
-          _onLocalIceCandidate(session.roomId, candidate),
-      clientConfig: rtcConfig,
+    final roomId = session.roomId;
+    await _runHandshakeStep(
+      'ensureAudioSession.pre',
+      roomId,
+      _audioSession.ensureConfigured,
     );
-    await _signalR.setAudioRemoteDescription(
-      session.roomId,
-      'answer',
-      sdpAnswer,
+    final rtcConfig = await _runHandshakeStep(
+      'getWebRtcConfig',
+      roomId,
+      _signalR.getWebRtcConfig,
     );
-    await _audioSession.ensureConfigured();
+    final sdpOffer = await _runHandshakeStep(
+      'startAudioStream',
+      roomId,
+      () => _signalR.startAudioStream(roomId),
+    );
+    final sdpAnswer = await _runHandshakeStep(
+      'webRtc.handleOffer',
+      roomId,
+      () => session.webRtc.handleOffer(
+        sdpOffer,
+        onIceCandidate: (candidate) => _onLocalIceCandidate(roomId, candidate),
+        clientConfig: rtcConfig,
+      ),
+    );
+    await _runHandshakeStep(
+      'setAudioRemoteDescription',
+      roomId,
+      () => _signalR.setAudioRemoteDescription(roomId, 'answer', sdpAnswer),
+    );
+    await _runHandshakeStep(
+      'ensureAudioSession.post',
+      roomId,
+      _audioSession.ensureConfigured,
+    );
+  }
+
+  Future<T> _runHandshakeStep<T>(
+    String stepName,
+    int roomId,
+    Future<T> Function() action,
+  ) async {
+    _log.info('handshake[$roomId]: $stepName start');
+    final sw = Stopwatch()..start();
+    try {
+      final result = await action();
+      _log.info(
+        'handshake[$roomId]: $stepName done in ${sw.elapsedMilliseconds}ms',
+      );
+      return result;
+    } catch (e, st) {
+      _log.warning(
+        'handshake[$roomId]: $stepName failed after ${sw.elapsedMilliseconds}ms',
+        e,
+        st,
+      );
+      rethrow;
+    }
   }
 
   /// Synchronous half of stopping a room. Pulls the session out of the active
@@ -526,10 +569,17 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     _signalRReconnectInFlight = true;
     _signalRReconnectAttempts++;
     try {
+      // Outer timeout is critical: if signalr_netcore's `start()` wedges
+      // (the same dead-but-not-detected-transport class of bug that affects
+      // hub invokes), the awaited future never returns and the `finally`
+      // below never runs — `_signalRReconnectInFlight` would stick true
+      // forever, blocking _ensureSignalRReconnectLoop from scheduling new
+      // attempts. 30s covers a slow but legitimate negotiation while still
+      // releasing us from a true wedge.
       await _runSerialized(() async {
         if (_disposed || _intentionalDisconnect || _signalR.isConnected) return;
         await _reconnectSignalRPreservingSessions();
-      });
+      }).timeout(const Duration(seconds: 30));
     } catch (e, st) {
       _log.warning('SignalR reconnect attempt failed', e, st);
     } finally {
@@ -636,44 +686,38 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     final session = _audioSessions[roomId];
     if (session == null) return;
     if (session.watchdogRecoveryRunning) return;
+    if (session.restoringAudioAfterReconnect) return;
     final now = DateTime.now();
     if (session.lastRecoveryAttemptAt != null &&
         now.difference(session.lastRecoveryAttemptAt!) < _minimumRecoveryGap) {
       return;
     }
 
-    _log.info('Watchdog recovery for room $roomId');
+    final attempt = ++session.recoveryGeneration;
+    _log.info('Watchdog recovery for room $roomId (attempt #$attempt)');
     session.watchdogRecoveryRunning = true;
     session.lastRecoveryAttemptAt = now;
+    final sw = Stopwatch()..start();
     try {
       await _runSerialized(() async {
-        if (_disposed || _intentionalDisconnect) return;
-        if (!_audioSessions.containsKey(roomId)) return;
-
-        await _audioSession.ensureConfigured();
-
-        if (!_signalR.isConnected) {
-          await _reconnectSignalRPreservingSessions();
-          if (!_signalR.isConnected) return;
-        }
-
-        final current = _audioSessions[roomId];
-        if (current == null) return;
-        await _signalR.selectRoom(roomId);
-        await current.webRtc.close();
-        await _startAudioWebRtcHandshake(current);
-        current.webRtc.setAudioEnabled(!current.audioMuted);
-        _updateState(MonitorConnectionState.connected);
-      }).timeout(
-        const Duration(seconds: 25),
-        onTimeout: () {
-          _log.warning(
-            'Watchdog recovery for room $roomId timed out — flag will be '
-            'released so the next tick can retry',
-          );
-        },
+        // Defense-in-depth outer cap: the per-invoke 12s timeout in
+        // SignalRService._invoke() is the primary protection against hung
+        // hub calls, but this 15s outer cap also catches any non-SignalR
+        // step that wedges (e.g. webRtc.close on flutter-webrtc native
+        // disposal) and ensures the operation queue never deadlocks.
+        await _recoverFromWatchdogBody(
+          roomId,
+          session,
+          attempt,
+          sw,
+        ).timeout(const Duration(seconds: 15));
+      });
+    } catch (e, st) {
+      _log.warning(
+        'Watchdog recovery for room $roomId failed after ${sw.elapsedMilliseconds}ms',
+        e,
+        st,
       );
-    } catch (e) {
       _updateState(
         MonitorConnectionState.failed,
         error: 'Automatic recovery failed for room $roomId: $e',
@@ -684,6 +728,46 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         current.watchdogRecoveryRunning = false;
       }
     }
+  }
+
+  Future<void> _recoverFromWatchdogBody(
+    int roomId,
+    _AudioRoomSession session,
+    int attempt,
+    Stopwatch sw,
+  ) async {
+    if (_disposed || _intentionalDisconnect) return;
+    if (!_audioSessions.containsKey(roomId)) return;
+
+    await _audioSession.ensureConfigured();
+
+    if (!_signalR.isConnected) {
+      await _reconnectSignalRPreservingSessions();
+      if (!_signalR.isConnected) return;
+    }
+
+    final current = _audioSessions[roomId];
+    if (current == null) return;
+    await _signalR.selectRoom(roomId);
+    // Best-effort: tell the server to drop its prior audio-stream state
+    // before we ask it for a new one. stopAudioStream is wrapped in
+    // try/catch and is a no-op when not connected, so it's safe to call.
+    await _signalR.stopAudioStream(roomId);
+    await current.webRtc.close();
+    await _startAudioWebRtcHandshake(current);
+
+    // Late-completion guard: if a newer attempt has started, or the
+    // session has been replaced/removed, don't commit our side effects.
+    if (attempt != current.recoveryGeneration ||
+        !identical(_audioSessions[roomId], current)) {
+      return;
+    }
+    current.webRtc.setAudioEnabled(!current.audioMuted);
+    _markAudioPacketReceived(current);
+    _updateState(MonitorConnectionState.connected);
+    _log.info(
+      'Watchdog recovery for room $roomId succeeded in ${sw.elapsedMilliseconds}ms',
+    );
   }
 
   Future<void> _recoverConnectionAfterResume() async {
@@ -744,6 +828,12 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
       _updateState(MonitorConnectionState.reconnecting);
       unawaited(_refreshMonitoringNotification(reconnecting: true));
+      // Defense-in-depth: after dropping withAutomaticReconnect we don't
+      // expect Reconnecting to be emitted, but if anything ever drives the
+      // state here we still want our manual loop running so the library
+      // can't get stuck in a zombie Reconnecting state without anyone
+      // driving recovery.
+      _ensureSignalRReconnectLoop();
       return;
     }
 
@@ -771,6 +861,15 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       _stopSignalRReconnectLoop();
       _updateState(MonitorConnectionState.connected);
       if (_audioSessions.isNotEmpty) {
+        // Claim each session for restore synchronously, BEFORE _startWatchdog
+        // fires its immediate tick — otherwise the tick races and runs
+        // _recoverFromWatchdog in parallel, and both paths fight over closing
+        // and rebuilding the same peer connection.
+        for (final session in _audioSessions.values) {
+          if (!session.watchdogRecoveryRunning) {
+            session.restoringAudioAfterReconnect = true;
+          }
+        }
         _startWatchdog();
         unawaited(_refreshMonitoringNotification(reconnecting: false));
         unawaited(_notification.clearMonitoringDisconnectedNotification());
@@ -784,12 +883,19 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     for (final roomId in roomIds) {
       final session = _audioSessions[roomId];
       if (session == null) continue;
-      if (session.restoringAudioAfterReconnect ||
-          session.watchdogRecoveryRunning) {
+      // The claim is now made synchronously by the caller in _onSignalRState
+      // before _startWatchdog fires. If the flag isn't set, watchdog recovery
+      // was already in flight for this session — skip and let it handle the
+      // restore.
+      if (!session.restoringAudioAfterReconnect) {
         continue;
       }
 
-      session.restoringAudioAfterReconnect = true;
+      final attempt = ++session.recoveryGeneration;
+      _log.info(
+        'Audio restore for room $roomId (attempt #$attempt)',
+      );
+      final sw = Stopwatch()..start();
       try {
         // If the existing peer connection is still Connected (it self-recovered
         // via ICE while SignalR was reconnecting) leave it alone — tearing it
@@ -808,26 +914,21 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
 
         await _runSerialized(() async {
-          if (!_signalR.isConnected || _intentionalDisconnect || _disposed) {
-            return;
-          }
-          if (!_audioSessions.containsKey(roomId)) return;
-          await _signalR.selectRoom(roomId);
-          await session.webRtc.close();
-          await _startAudioWebRtcHandshake(session);
-          session.webRtc.setAudioEnabled(!session.audioMuted);
-          await _refreshMonitoringNotification();
-          await _notification.clearMonitoringDisconnectedNotification();
-        }).timeout(
-          const Duration(seconds: 25),
-          onTimeout: () {
-            _log.warning(
-              'Audio restore for room $roomId timed out — will retry via '
-              'watchdog',
-            );
-          },
+          // Defense-in-depth outer cap (per-invoke 12s timeout in
+          // SignalRService._invoke is the primary protection).
+          await _restoreAudioBody(
+            roomId,
+            session,
+            attempt,
+            sw,
+          ).timeout(const Duration(seconds: 15));
+        });
+      } catch (e, st) {
+        _log.warning(
+          'Audio restore for room $roomId failed after ${sw.elapsedMilliseconds}ms — will retry via watchdog',
+          e,
+          st,
         );
-      } catch (e) {
         _updateState(
           MonitorConnectionState.failed,
           error: 'Failed restoring audio for room $roomId: $e',
@@ -836,6 +937,36 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         session.restoringAudioAfterReconnect = false;
       }
     }
+  }
+
+  Future<void> _restoreAudioBody(
+    int roomId,
+    _AudioRoomSession session,
+    int attempt,
+    Stopwatch sw,
+  ) async {
+    if (!_signalR.isConnected || _intentionalDisconnect || _disposed) {
+      return;
+    }
+    if (!_audioSessions.containsKey(roomId)) return;
+    await _signalR.selectRoom(roomId);
+    // Best-effort: ask the server to drop the prior stream before we
+    // start a new one. See same call in _recoverFromWatchdog.
+    await _signalR.stopAudioStream(roomId);
+    await session.webRtc.close();
+    await _startAudioWebRtcHandshake(session);
+
+    if (attempt != session.recoveryGeneration ||
+        !identical(_audioSessions[roomId], session)) {
+      return;
+    }
+    session.webRtc.setAudioEnabled(!session.audioMuted);
+    _markAudioPacketReceived(session);
+    await _refreshMonitoringNotification();
+    await _notification.clearMonitoringDisconnectedNotification();
+    _log.info(
+      'Audio restore for room $roomId succeeded in ${sw.elapsedMilliseconds}ms',
+    );
   }
 
   void _onWebRtcState(int roomId, RTCPeerConnectionState state) {
@@ -1057,6 +1188,11 @@ class _AudioRoomSession {
   bool restoringAudioAfterReconnect = false;
   bool watchdogRecoveryRunning = false;
   bool audioMuted = false;
+  // Bumped on every recovery attempt. A `.timeout()` that fires after the
+  // underlying SignalR/WebRTC call eventually returns must NOT commit side
+  // effects belonging to a stale attempt — comparing against this generation
+  // catches that.
+  int recoveryGeneration = 0;
   // Set to true by the stop path's sync phase so buffered broadcast-stream
   // events arriving between sub.cancel() and actual unsubscribe can't
   // re-trigger notifications, vibration, VU meters, or alert state.

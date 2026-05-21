@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import 'package:signalr_netcore/iretry_policy.dart';
 import 'package:signalr_netcore/signalr_client.dart';
 import '../models/audio_settings.dart';
 import '../models/global_settings.dart';
@@ -51,7 +50,14 @@ class SignalRService {
 
     final logger = Logger('SignalR');
 
-    _connection = HubConnectionBuilder()
+    // Build the new HubConnection. We intentionally do NOT use
+    // `.withAutomaticReconnect(...)`: the underlying signalr_netcore policy
+    // silently stops retrying after a TimeoutException during negotiation
+    // (observed in production at 2026-05-19), leaving the library in a
+    // permanent Reconnecting/zombie state with no `onclose` callback.
+    // Reconnect is driven from ConnectionProvider._ensureSignalRReconnectLoop()
+    // with our own infinite backoff via SignalRService.reconnectDelayForAttempt.
+    final connection = HubConnectionBuilder()
         .withUrl(
           hubUrl,
           options: HttpConnectionOptions(
@@ -65,32 +71,39 @@ class SignalRService {
           ),
         )
         .configureLogging(logger)
-        .withAutomaticReconnect(reconnectPolicy: _InfiniteRetryPolicy())
         .build();
+    _connection = connection;
 
-    _connection!
+    connection
       ..keepAliveIntervalInMilliseconds = _defaultKeepAliveMs
       ..serverTimeoutInMilliseconds = _defaultServerTimeoutMs;
 
-    _connection!.onclose(({error}) {
-      if (!_disposed) {
-        _connectionStateController.add(HubConnectionState.Disconnected);
-      }
+    // Identity guard on every callback: a torn-down HubConnection can still
+    // fire events after a fresh one has been built (codex flagged this race).
+    // `identical(_connection, connection)` ensures only the current connection
+    // can push to the shared streams.
+    bool isCurrent() => identical(_connection, connection);
+
+    connection.onclose(({error}) {
+      if (_disposed || !isCurrent()) return;
+      _connectionStateController.add(HubConnectionState.Disconnected);
     });
 
-    _connection!.onreconnecting(({error}) {
-      if (!_disposed) {
-        _connectionStateController.add(HubConnectionState.Reconnecting);
-      }
+    // Kept for safety though no path emits Reconnecting now that we've
+    // dropped withAutomaticReconnect. If a future change reintroduces it,
+    // the state still reaches ConnectionProvider.
+    connection.onreconnecting(({error}) {
+      if (_disposed || !isCurrent()) return;
+      _connectionStateController.add(HubConnectionState.Reconnecting);
     });
 
-    _connection!.onreconnected(({connectionId}) {
-      if (!_disposed) {
-        _connectionStateController.add(HubConnectionState.Connected);
-      }
+    connection.onreconnected(({connectionId}) {
+      if (_disposed || !isCurrent()) return;
+      _connectionStateController.add(HubConnectionState.Connected);
     });
 
-    _connection!.on('ReceiveAudioIceCandidate', (arguments) {
+    connection.on('ReceiveAudioIceCandidate', (arguments) {
+      if (!isCurrent()) return;
       final parsed = tryParseIceCandidateArgs(
         arguments is List ? arguments : null,
       );
@@ -101,7 +114,8 @@ class SignalRService {
       _iceCandidateController.add(parsed);
     });
 
-    _connection!.on('ReceiveVideoIceCandidate', (arguments) {
+    connection.on('ReceiveVideoIceCandidate', (arguments) {
+      if (!isCurrent()) return;
       final parsed = tryParseVideoIceCandidateArgs(
         arguments is List ? arguments : null,
       );
@@ -112,11 +126,13 @@ class SignalRService {
       _videoIceCandidateController.add(parsed);
     });
 
-    _connection!.on('RoomsUpdated', (_) {
+    connection.on('RoomsUpdated', (_) {
+      if (!isCurrent()) return;
       _roomsUpdatedController.add(null);
     });
 
-    _connection!.on('ActiveRoomChanged', (arguments) {
+    connection.on('ActiveRoomChanged', (arguments) {
+      if (!isCurrent()) return;
       if (arguments is! List || arguments.isEmpty) return;
       final raw = arguments.first;
       final roomMap = _asJsonMap(raw);
@@ -124,16 +140,20 @@ class SignalRService {
       _activeRoomChangedController.add(Room.fromJson(roomMap));
     });
 
-    _connection!.on('SettingsUpdated', (_) {
+    connection.on('SettingsUpdated', (_) {
+      if (!isCurrent()) return;
       _settingsUpdatedController.add(null);
     });
 
     try {
-      await _connection!.start();
+      await connection.start();
+      if (!isCurrent()) return;
       _cachedWebRtcConfig = null;
       _connectionStateController.add(HubConnectionState.Connected);
     } catch (e) {
-      _connectionStateController.add(HubConnectionState.Disconnected);
+      if (isCurrent()) {
+        _connectionStateController.add(HubConnectionState.Disconnected);
+      }
       rethrow;
     }
   }
@@ -463,14 +483,5 @@ class SignalRService {
     if (previousRetryCount == 3) return 10000;
     if (previousRetryCount == 4) return 15000;
     return 15000;
-  }
-}
-
-class _InfiniteRetryPolicy implements IRetryPolicy {
-  @override
-  int? nextRetryDelayInMilliseconds(RetryContext retryContext) {
-    return SignalRService.reconnectDelayForAttempt(
-      retryContext.previousRetryCount,
-    );
   }
 }

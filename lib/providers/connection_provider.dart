@@ -187,7 +187,6 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         session.audioMuted = false;
         session.webRtc.setAudioEnabled(true);
-        _markAudioPacketReceived(session);
         _startWatchdog();
         await _refreshMonitoringNotification();
         unawaited(_notification.requestBatteryOptimizationExemption());
@@ -664,9 +663,16 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         await current.webRtc.close();
         await _startAudioWebRtcHandshake(current);
         current.webRtc.setAudioEnabled(!current.audioMuted);
-        _markAudioPacketReceived(current);
         _updateState(MonitorConnectionState.connected);
-      });
+      }).timeout(
+        const Duration(seconds: 25),
+        onTimeout: () {
+          _log.warning(
+            'Watchdog recovery for room $roomId timed out — flag will be '
+            'released so the next tick can retry',
+          );
+        },
+      );
     } catch (e) {
       _updateState(
         MonitorConnectionState.failed,
@@ -729,6 +735,12 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (stateLabel.contains('reconnecting')) {
       for (final session in _audioSessions.values) {
         session.signalRDisconnectedAt ??= DateTime.now();
+        // Drop in-flight recovery flags — the SignalR transport just went
+        // down, so any prior restore/watchdog work is no longer making
+        // progress. Without this, a hung invoke from the previous attempt
+        // would keep these flags set and skip every future restore.
+        session.restoringAudioAfterReconnect = false;
+        session.watchdogRecoveryRunning = false;
       }
       _updateState(MonitorConnectionState.reconnecting);
       unawaited(_refreshMonitoringNotification(reconnecting: true));
@@ -738,6 +750,8 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (stateLabel.contains('disconnected')) {
       for (final session in _audioSessions.values) {
         session.signalRDisconnectedAt ??= DateTime.now();
+        session.restoringAudioAfterReconnect = false;
+        session.watchdogRecoveryRunning = false;
       }
       _updateState(
         MonitorConnectionState.failed,
@@ -777,6 +791,22 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       session.restoringAudioAfterReconnect = true;
       try {
+        // If the existing peer connection is still Connected (it self-recovered
+        // via ICE while SignalR was reconnecting) leave it alone — tearing it
+        // down forces a fresh ICE negotiation that often fails on flaky links
+        // and replaces a working stream with a broken one.
+        if (session.webRtc.currentConnectionState ==
+            RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+          _log.info(
+            'Skipping audio restore for room $roomId — peer connection still '
+            'Connected',
+          );
+          _updateState(MonitorConnectionState.connected);
+          await _refreshMonitoringNotification();
+          await _notification.clearMonitoringDisconnectedNotification();
+          continue;
+        }
+
         await _runSerialized(() async {
           if (!_signalR.isConnected || _intentionalDisconnect || _disposed) {
             return;
@@ -786,10 +816,17 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
           await session.webRtc.close();
           await _startAudioWebRtcHandshake(session);
           session.webRtc.setAudioEnabled(!session.audioMuted);
-          _markAudioPacketReceived(session);
           await _refreshMonitoringNotification();
           await _notification.clearMonitoringDisconnectedNotification();
-        });
+        }).timeout(
+          const Duration(seconds: 25),
+          onTimeout: () {
+            _log.warning(
+              'Audio restore for room $roomId timed out — will retry via '
+              'watchdog',
+            );
+          },
+        );
       } catch (e) {
         _updateState(
           MonitorConnectionState.failed,

@@ -15,6 +15,9 @@ final _log = Logger('SignalRService');
 class SignalRService {
   static const int _defaultKeepAliveMs = 10000;
   static const int _defaultServerTimeoutMs = 35000;
+  // Sits above the 10s HTTP requestTimeout and below the 35s server timeout so
+  // hung hub invokes can't deadlock the serialized recovery queue overnight.
+  static const Duration _invokeTimeout = Duration(seconds: 12);
 
   HubConnection? _connection;
   WebRtcClientConfig? _cachedWebRtcConfig;
@@ -136,11 +139,7 @@ class SignalRService {
   }
 
   Future<String> startAudioStream(int roomId) async {
-    _ensureConnected();
-    final result = await _connection!.invoke(
-      'StartAudioStream',
-      args: [roomId],
-    );
+    final result = await _invoke('StartAudioStream', args: [roomId]);
     return result as String;
   }
 
@@ -149,11 +148,7 @@ class SignalRService {
     String type,
     String sdp,
   ) async {
-    _ensureConnected();
-    await _connection!.invoke(
-      'SetAudioRemoteDescription',
-      args: [roomId, type, sdp],
-    );
+    await _invoke('SetAudioRemoteDescription', args: [roomId, type, sdp]);
   }
 
   Future<void> addAudioIceCandidate(
@@ -162,31 +157,26 @@ class SignalRService {
     String? sdpMid,
     int? sdpMLineIndex,
   ) async {
-    _ensureConnected();
     final List<Object> args = [
       roomId,
       candidate,
       sdpMid ?? '',
       sdpMLineIndex ?? 0,
     ];
-    await _connection!.invoke('AddAudioIceCandidate', args: args);
+    await _invoke('AddAudioIceCandidate', args: args);
   }
 
   Future<void> stopAudioStream(int roomId) async {
     if (!isConnected) return;
     try {
-      await _connection!.invoke('StopAudioStream', args: [roomId]);
+      await _invoke('StopAudioStream', args: [roomId]);
     } catch (e, st) {
       _log.warning('Error stopping audio stream for room $roomId', e, st);
     }
   }
 
   Future<String> startVideoStream(int roomId) async {
-    _ensureConnected();
-    final result = await _connection!.invoke(
-      'StartVideoStream',
-      args: [roomId],
-    );
+    final result = await _invoke('StartVideoStream', args: [roomId]);
     return result as String;
   }
 
@@ -195,11 +185,7 @@ class SignalRService {
     String type,
     String sdp,
   ) async {
-    _ensureConnected();
-    await _connection!.invoke(
-      'SetVideoRemoteDescription',
-      args: [roomId, type, sdp],
-    );
+    await _invoke('SetVideoRemoteDescription', args: [roomId, type, sdp]);
   }
 
   Future<void> addVideoIceCandidate(
@@ -208,30 +194,27 @@ class SignalRService {
     String? sdpMid,
     int? sdpMLineIndex,
   ) async {
-    _ensureConnected();
     final args = <Object>[roomId, candidate, sdpMid ?? '', sdpMLineIndex ?? 0];
-    await _connection!.invoke('AddVideoIceCandidate', args: args);
+    await _invoke('AddVideoIceCandidate', args: args);
   }
 
   Future<void> stopVideoStream(int roomId) async {
     if (!isConnected) return;
     try {
-      await _connection!.invoke('StopVideoStream', args: [roomId]);
+      await _invoke('StopVideoStream', args: [roomId]);
     } catch (e, st) {
       _log.warning('Error stopping video stream for room $roomId', e, st);
     }
   }
 
   Future<AudioSettings> getAudioSettings() async {
-    _ensureConnected();
-    final result = await _connection!.invoke('GetAudioSettings');
+    final result = await _invoke('GetAudioSettings');
     final map = _asJsonMap(result);
     return map == null ? const AudioSettings() : AudioSettings.fromJson(map);
   }
 
   Future<GlobalSettings> getGlobalSettings() async {
-    _ensureConnected();
-    final result = await _connection!.invoke('GetGlobalSettings');
+    final result = await _invoke('GetGlobalSettings');
     final map = _asJsonMap(result);
     return map == null ? const GlobalSettings() : GlobalSettings.fromJson(map);
   }
@@ -241,9 +224,8 @@ class SignalRService {
       return _cachedWebRtcConfig!;
     }
 
-    _ensureConnected();
     try {
-      final result = await _connection!.invoke('GetWebRtcConfig');
+      final result = await _invoke('GetWebRtcConfig');
       final map = _asJsonMap(result);
       final config = map == null
           ? WebRtcClientConfig.fallback()
@@ -258,8 +240,7 @@ class SignalRService {
   }
 
   Future<List<NestDevice>> getNestDevices() async {
-    _ensureConnected();
-    final result = await _connection!.invoke('GetNestDevices');
+    final result = await _invoke('GetNestDevices');
     if (result is! List) return const [];
     return result
         .map((raw) => _asJsonMap(raw))
@@ -269,8 +250,7 @@ class SignalRService {
   }
 
   Future<bool> isNestLinked() async {
-    _ensureConnected();
-    final result = await _connection!.invoke('IsNestLinked');
+    final result = await _invoke('IsNestLinked');
     if (result is bool) return result;
     if (result is String) {
       return result.toLowerCase() == 'true';
@@ -279,18 +259,15 @@ class SignalRService {
   }
 
   Future<void> updateGlobalSettings(GlobalSettings settings) async {
-    _ensureConnected();
-    await _connection!.invoke('UpdateAudioSettings', args: [settings.toJson()]);
+    await _invoke('UpdateAudioSettings', args: [settings.toJson()]);
   }
 
   Future<void> updateAudioSettings(AudioSettings settings) async {
-    _ensureConnected();
-    await _connection!.invoke('UpdateAudioSettings', args: [settings.toJson()]);
+    await _invoke('UpdateAudioSettings', args: [settings.toJson()]);
   }
 
   Future<List<Room>> getRooms() async {
-    _ensureConnected();
-    final result = await _connection!.invoke('GetRooms');
+    final result = await _invoke('GetRooms');
     if (result is! List) return const [];
     return result
         .map((raw) => _asJsonMap(raw))
@@ -300,43 +277,46 @@ class SignalRService {
   }
 
   Future<Room> createRoom(Room room) async {
-    _ensureConnected();
-    final result = await _connection!.invoke(
-      'CreateRoom',
-      args: [room.toJson()],
-    );
+    final result = await _invoke('CreateRoom', args: [room.toJson()]);
     final map = _asJsonMap(result);
     return map == null ? room : Room.fromJson(map);
   }
 
   Future<Room?> updateRoom(Room room) async {
-    _ensureConnected();
-    final result = await _connection!.invoke(
-      'UpdateRoom',
-      args: [room.toJson()],
-    );
+    final result = await _invoke('UpdateRoom', args: [room.toJson()]);
     final map = _asJsonMap(result);
     return map == null ? null : Room.fromJson(map);
   }
 
   Future<bool> deleteRoom(int id) async {
-    _ensureConnected();
-    final result = await _connection!.invoke('DeleteRoom', args: [id]);
+    final result = await _invoke('DeleteRoom', args: [id]);
     return result == true;
   }
 
   Future<Room?> selectRoom(int roomId) async {
-    _ensureConnected();
-    final result = await _connection!.invoke('SelectRoom', args: [roomId]);
+    final result = await _invoke('SelectRoom', args: [roomId]);
     final map = _asJsonMap(result);
     return map == null ? null : Room.fromJson(map);
   }
 
   Future<Room?> getActiveRoom() async {
-    _ensureConnected();
-    final result = await _connection!.invoke('GetActiveRoom');
+    final result = await _invoke('GetActiveRoom');
     final map = _asJsonMap(result);
     return map == null ? null : Room.fromJson(map);
+  }
+
+  Future<Object?> _invoke(String method, {List<Object>? args}) {
+    _ensureConnected();
+    return _connection!
+        .invoke(method, args: args)
+        .timeout(
+          _invokeTimeout,
+          onTimeout: () => throw TimeoutException(
+            'SignalR invoke "$method" timed out after '
+            '${_invokeTimeout.inSeconds}s',
+            _invokeTimeout,
+          ),
+        );
   }
 
   Future<void> disconnect() async {

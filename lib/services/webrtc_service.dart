@@ -19,6 +19,7 @@ class WebRtcService {
   bool _audioEnabled = true;
   Timer? _statsTimer;
   bool _closing = false;
+  RTCPeerConnectionState? _currentConnectionState;
 
   final _connectionStateController =
       StreamController<RTCPeerConnectionState>.broadcast();
@@ -29,6 +30,7 @@ class WebRtcService {
   Stream<double> get packetLossStream => _qualityController.stream;
   DataChannelHandler get dataChannelHandler => _dataChannelHandler;
   bool get audioEnabled => _audioEnabled;
+  RTCPeerConnectionState? get currentConnectionState => _currentConnectionState;
 
   WebRtcService({DataChannelHandler? dataChannelHandler})
     : _dataChannelHandler = dataChannelHandler ?? DataChannelHandler();
@@ -48,6 +50,7 @@ class WebRtcService {
     _peerConnection = await createPeerConnection(config);
 
     _peerConnection!.onConnectionState = (state) {
+      _currentConnectionState = state;
       _log.info('PeerConnection state: ${state.name}');
       _connectionStateController.add(state);
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
@@ -215,6 +218,7 @@ class WebRtcService {
     _pendingCandidates.clear();
     _seenRemoteCandidateKeys.clear();
     _remoteAudioTracks.clear();
+    _currentConnectionState = null;
 
     final pc = _peerConnection;
     _peerConnection = null;

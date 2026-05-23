@@ -569,17 +569,21 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     _signalRReconnectInFlight = true;
     _signalRReconnectAttempts++;
     try {
-      // Outer timeout is critical: if signalr_netcore's `start()` wedges
-      // (the same dead-but-not-detected-transport class of bug that affects
-      // hub invokes), the awaited future never returns and the `finally`
-      // below never runs — `_signalRReconnectInFlight` would stick true
-      // forever, blocking _ensureSignalRReconnectLoop from scheduling new
-      // attempts. 30s covers a slow but legitimate negotiation while still
-      // releasing us from a true wedge.
+      // Timeout MUST be inside the serialized action, not on the awaited
+      // future returned by _runSerialized. Future.timeout cannot cancel the
+      // underlying operation — when applied outside, the chained future
+      // inside _operationQueue keeps awaiting the hung action and never
+      // settles, wedging every subsequent serialized op for the lifetime of
+      // the process (observed 2026-05-22 22:00-22:44: 48 min of pure 30s
+      // timeouts with zero SignalR activity until force-close). Placing the
+      // timeout inside guarantees the queue advances even if connect() hangs.
+      // 30s covers a slow but legitimate negotiation; SignalRService bounds
+      // its own stop() at 5s so the lowest-level wedge is also bounded.
       await _runSerialized(() async {
         if (_disposed || _intentionalDisconnect || _signalR.isConnected) return;
-        await _reconnectSignalRPreservingSessions();
-      }).timeout(const Duration(seconds: 30));
+        await _reconnectSignalRPreservingSessions()
+            .timeout(const Duration(seconds: 30));
+      });
     } catch (e, st) {
       _log.warning('SignalR reconnect attempt failed', e, st);
     } finally {

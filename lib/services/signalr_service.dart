@@ -152,6 +152,11 @@ class SignalRService {
       _connectionStateController.add(HubConnectionState.Connected);
     } catch (e) {
       if (isCurrent()) {
+        // Null the field so a later-completing abandoned start() can't
+        // resurface as Connected on a stale HubConnection, and so the next
+        // connect() rebuilds cleanly without trying to stop() a half-built
+        // connection.
+        _connection = null;
         _connectionStateController.add(HubConnectionState.Disconnected);
       }
       rethrow;
@@ -340,13 +345,27 @@ class SignalRService {
   }
 
   Future<void> disconnect() async {
+    // Null the field BEFORE awaiting stop(): signalr_netcore's stop() can wedge
+    // on a zombie HubConnection (it awaits internal startPromise/transport
+    // shutdown which never resolve after the library's retry-exhaustion path).
+    // Bounded by a 5s timeout so a hung stop can't poison the serialized
+    // operation queue in ConnectionProvider — the next connect() will rebuild
+    // the connection from scratch.
+    final connection = _connection;
+    _connection = null;
+    _cachedWebRtcConfig = null;
+    if (connection == null) return;
     try {
-      await _connection?.stop();
+      await connection.stop().timeout(const Duration(seconds: 5));
+    } on TimeoutException catch (e, st) {
+      _log.warning(
+        'SignalR stop() did not return within 5s — abandoning connection',
+        e,
+        st,
+      );
     } catch (e, st) {
       _log.warning('Error disconnecting SignalR', e, st);
     }
-    _connection = null;
-    _cachedWebRtcConfig = null;
   }
 
   void dispose() {

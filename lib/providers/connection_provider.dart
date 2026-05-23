@@ -911,6 +911,10 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
             'Skipping audio restore for room $roomId — peer connection still '
             'Connected',
           );
+          // Defensive: the PC stayed up but the remote track may have been
+          // left disabled by an earlier failed restore. Re-apply the desired
+          // enabled state so the skip path can never silently mute audio.
+          session.webRtc.setAudioEnabled(!session.audioMuted);
           _updateState(MonitorConnectionState.connected);
           await _refreshMonitoringNotification();
           await _notification.clearMonitoringDisconnectedNotification();
@@ -1024,24 +1028,100 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  /// Called from inside `_recoverConnectionAfterResume`'s `_runSerialized`
+  /// block, so this function must NOT call `_runSerialized` again — doing so
+  /// chains the inner future on the outer's completion and deadlocks the
+  /// operation queue.
+  ///
+  /// Mirrors the video-side `_recoverVideoSessionsAfterResume` pattern: fully
+  /// rebuild every audio peer connection, because flutter-webrtc's Android
+  /// AudioTrack/playout binding can go stale across pause/resume and
+  /// `setAudioEnabled` (just `MediaStreamTrack.enabled`) cannot revive it.
   Future<void> _recoverAudioSessionAfterResume() async {
     if (_audioSessions.isEmpty || !_signalR.isConnected || _disposed) {
       return;
     }
 
-    await _runSerialized(() async {
+    final roomIds = _audioSessions.keys.toList(growable: false);
+    _log.info('Resume: rebuilding audio sessions: $roomIds');
+
+    for (final roomId in roomIds) {
       if (_disposed || _intentionalDisconnect) return;
       if (!_signalR.isConnected) return;
 
-      try {
-        await _audioSession.ensureConfigured();
-        for (final session in _audioSessions.values) {
-          session.webRtc.setAudioEnabled(!session.audioMuted);
-        }
-      } catch (e, st) {
-        _log.warning('Failed to recover audio session on resume', e, st);
+      final session = _audioSessions[roomId];
+      if (session == null) continue;
+
+      // If a reconnect-restore or watchdog recovery is already rebuilding
+      // this session, let it finish — racing it would double-close the peer
+      // connection.
+      if (session.restoringAudioAfterReconnect ||
+          session.watchdogRecoveryRunning ||
+          session.resumeRebuildRunning) {
+        continue;
       }
-    });
+
+      session.resumeRebuildRunning = true;
+      final attempt = ++session.recoveryGeneration;
+      final sw = Stopwatch()..start();
+      _log.info('Resume audio rebuild for room $roomId (attempt #$attempt)');
+      try {
+        await _resumeRebuildBody(
+          roomId,
+          session,
+          attempt,
+          sw,
+        ).timeout(const Duration(seconds: 15));
+      } catch (e, st) {
+        _log.warning(
+          'Resume audio rebuild for room $roomId failed after '
+          '${sw.elapsedMilliseconds}ms — will retry via watchdog',
+          e,
+          st,
+        );
+        _updateState(
+          MonitorConnectionState.failed,
+          error: 'Failed rebuilding audio for room $roomId: $e',
+        );
+      } finally {
+        // Reread — the session may have been replaced or removed during the
+        // rebuild; only clear the flag on the still-current instance.
+        final current = _audioSessions[roomId];
+        if (current != null) {
+          current.resumeRebuildRunning = false;
+        }
+      }
+    }
+  }
+
+  Future<void> _resumeRebuildBody(
+    int roomId,
+    _AudioRoomSession session,
+    int attempt,
+    Stopwatch sw,
+  ) async {
+    if (!_signalR.isConnected || _intentionalDisconnect || _disposed) return;
+    if (!_audioSessions.containsKey(roomId)) return;
+
+    await _signalR.selectRoom(roomId);
+    // Best-effort: ask the server to drop the prior stream before we start
+    // a new one. Same as `_restoreAudioBody`.
+    await _signalR.stopAudioStream(roomId);
+    await session.webRtc.close();
+    await _startAudioWebRtcHandshake(session);
+
+    // Late-completion guard: a newer attempt (watchdog, reconnect, another
+    // resume) may have superseded us, or the session may have been replaced.
+    if (attempt != session.recoveryGeneration ||
+        !identical(_audioSessions[roomId], session)) {
+      return;
+    }
+    session.webRtc.setAudioEnabled(!session.audioMuted);
+    _markAudioPacketReceived(session);
+    _log.info(
+      'Resume audio rebuild for room $roomId succeeded in '
+      '${sw.elapsedMilliseconds}ms',
+    );
   }
 
   void _onRemoteIceCandidate(RemoteIceCandidate candidate) {
@@ -1191,6 +1271,7 @@ class _AudioRoomSession {
 
   bool restoringAudioAfterReconnect = false;
   bool watchdogRecoveryRunning = false;
+  bool resumeRebuildRunning = false;
   bool audioMuted = false;
   // Bumped on every recovery attempt. A `.timeout()` that fires after the
   // underlying SignalR/WebRTC call eventually returns must NOT commit side

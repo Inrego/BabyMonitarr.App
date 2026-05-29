@@ -38,8 +38,8 @@ Default level is `INFO`. Files roll daily as `babymonitarr-YYYY-MM-DD.log` and t
 
 | Platform | Path |
 |----------|------|
-| Android  | `/sdcard/Android/data/com.babymonitarr.babymonitarr.opus/files/logs/` (release) |
-| Android (dev build) | `/sdcard/Android/data/com.babymonitarr.babymonitarr.opus.dev/files/logs/` |
+| Android  | `/sdcard/Android/data/com.inrego.babymonitarr/files/logs/` (release) |
+| Android (dev build) | `/sdcard/Android/data/com.inrego.babymonitarr.dev/files/logs/` |
 | iOS      | Application Documents directory (`<app sandbox>/Documents/logs/`) |
 | Windows  | `getApplicationDocumentsDirectory()` → typically `%APPDATA%\com.babymonitarr\babymonitarr\logs\` |
 
@@ -51,17 +51,17 @@ The in-app **Settings → Diagnostics** section shows the absolute path and has 
 
 ```bash
 # Release build
-adb pull /sdcard/Android/data/com.babymonitarr.babymonitarr.opus/files/logs/ ./logs
+adb pull /sdcard/Android/data/com.inrego.babymonitarr/files/logs/ ./logs
 
 # Dev build
-adb pull /sdcard/Android/data/com.babymonitarr.babymonitarr.opus.dev/files/logs/ ./logs
+adb pull /sdcard/Android/data/com.inrego.babymonitarr.dev/files/logs/ ./logs
 ```
 
 If `adb pull` on the directory fails on a specific device, pull a single file:
 
 ```bash
-adb shell ls /sdcard/Android/data/com.babymonitarr.babymonitarr.opus/files/logs/
-adb pull /sdcard/Android/data/com.babymonitarr.babymonitarr.opus/files/logs/babymonitarr-YYYY-MM-DD.log
+adb shell ls /sdcard/Android/data/com.inrego.babymonitarr/files/logs/
+adb pull /sdcard/Android/data/com.inrego.babymonitarr/files/logs/babymonitarr-YYYY-MM-DD.log
 ```
 
 If you only have `adb logcat` access (device not permitting external-files-dir reads), filter for the app's log tags — `debugPrint` forwarding is still wired in `AppLogger._onRecord`, so every logged line also appears in logcat:

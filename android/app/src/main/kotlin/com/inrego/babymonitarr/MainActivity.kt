@@ -1,4 +1,4 @@
-package com.babymonitarr.babymonitarr
+package com.inrego.babymonitarr
 
 import android.app.PictureInPictureParams
 import android.content.Context

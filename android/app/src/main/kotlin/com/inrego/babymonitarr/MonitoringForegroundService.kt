@@ -1,4 +1,4 @@
-package com.babymonitarr.babymonitarr
+package com.inrego.babymonitarr
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -20,8 +20,8 @@ class MonitoringForegroundService : Service() {
         private const val channelId = "babymonitarr_monitoring_service_native"
         private const val channelName = "BabyMonitarr Monitoring"
         private const val notificationId = 17001
-        private const val actionStart = "com.babymonitarr.babymonitarr.action.START_MONITORING"
-        private const val actionUpdate = "com.babymonitarr.babymonitarr.action.UPDATE_MONITORING"
+        private const val actionStart = "com.inrego.babymonitarr.action.START_MONITORING"
+        private const val actionUpdate = "com.inrego.babymonitarr.action.UPDATE_MONITORING"
         private const val extraTitle = "title"
         private const val extraBody = "body"
         private const val wakeLockTag = "BabyMonitarr:MonitoringCpuWakeLock"

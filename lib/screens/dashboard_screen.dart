@@ -440,6 +440,25 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
+  void _suspendVideoSessions() {
+    if (!_initialized) return;
+    final connection = context.read<ConnectionProvider>();
+    final pipRoomId = _pipService.activePipRoomId;
+    final roomIds = _videoSessions.keys
+        .where((roomId) => roomId != pipRoomId)
+        .toList(growable: false);
+    if (roomIds.isEmpty) return;
+    _log.info('Background: suspending video sessions: $roomIds');
+    for (final roomId in roomIds) {
+      // notifyServer when connected so the backend tears down the video stream
+      // and stops encoding while we're in the background. Audio keeps the
+      // SignalR connection alive via the foreground service.
+      unawaited(
+        _disposeVideoSession(roomId, notifyServer: connection.isConnected),
+      );
+    }
+  }
+
   Future<void> _openMonitorSettings({int? roomId}) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -597,23 +616,28 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed) {
-      if (_pipService.isInPipMode.value) {
-        _pipService.isPipActive().then((isActive) {
-          if (!isActive && mounted) {
-            _pipService.exitPip();
-          }
-        });
-      }
-      unawaited(_recoverVideoSessionsAfterResume());
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        _suspendVideoSessions();
+        break;
+      case AppLifecycleState.resumed:
+        if (_pipService.isInPipMode.value) {
+          _pipService.isPipActive().then((isActive) {
+            if (!isActive && mounted) {
+              _pipService.exitPip();
+            }
+          });
+        }
+        unawaited(_recoverVideoSessionsAfterResume());
+        break;
+      default:
+        break;
     }
   }
 
   Future<void> _recoverVideoSessionsAfterResume() async {
-    if (!mounted ||
-        !_initialized ||
-        _videoSessions.isEmpty ||
-        _resumeRecoveryInProgress) {
+    if (!mounted || !_initialized || _resumeRecoveryInProgress) {
       return;
     }
     final connection = context.read<ConnectionProvider>();
@@ -633,16 +657,16 @@ class _DashboardScreenState extends State<DashboardScreen>
       final roomIdsToRebuild = _videoSessions.keys
           .where((roomId) => roomId != pipRoomId)
           .toList(growable: false);
-      if (roomIdsToRebuild.isEmpty) return;
-      _log.info('Resume: rebuilding video sessions: $roomIdsToRebuild');
-
-      for (final roomId in roomIdsToRebuild) {
-        if (!mounted) return;
-        // notifyServer: true so the backend tears down the old video stream
-        // before we start a new one — otherwise it accumulates orphaned
-        // sessions. stopVideoStream() is best-effort and already swallows
-        // errors, so a stale SignalR transport won't block the rebuild.
-        await _disposeVideoSession(roomId, notifyServer: true);
+      if (roomIdsToRebuild.isNotEmpty) {
+        _log.info('Resume: rebuilding video sessions: $roomIdsToRebuild');
+        for (final roomId in roomIdsToRebuild) {
+          if (!mounted) return;
+          // notifyServer: true so the backend tears down the old video stream
+          // before we start a new one — otherwise it accumulates orphaned
+          // sessions. stopVideoStream() is best-effort and already swallows
+          // errors, so a stale SignalR transport won't block the rebuild.
+          await _disposeVideoSession(roomId, notifyServer: true);
+        }
       }
 
       while (_syncInProgress && mounted) {

@@ -23,15 +23,15 @@ void main() async {
       await AppLogger.init();
 
       FlutterError.onError = (details) {
-        Logger('FlutterError').severe(
-          details.exceptionAsString(),
-          details.exception,
-          details.stack,
-        );
+        Logger(
+          'FlutterError',
+        ).severe(details.exceptionAsString(), details.exception, details.stack);
         FlutterError.presentError(details);
       };
       PlatformDispatcher.instance.onError = (error, stack) {
-        Logger('PlatformDispatcher').severe('Uncaught platform error', error, stack);
+        Logger(
+          'PlatformDispatcher',
+        ).severe('Uncaught platform error', error, stack);
         return true;
       };
 
@@ -116,9 +116,10 @@ class _SplashScreenState extends State<_SplashScreen>
       duration: const Duration(milliseconds: 800),
     );
     _fadeIn = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
-    _scale = Tween<double>(begin: 0.85, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
-    );
+    _scale = Tween<double>(
+      begin: 0.85,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
     _controller.forward();
   }
 
@@ -147,9 +148,7 @@ class _SplashScreenState extends State<_SplashScreen>
                 const SizedBox(height: 24),
                 Text(
                   'BabyMonitarr',
-                  style: AppTheme.title.copyWith(
-                    color: AppColors.primaryWarm,
-                  ),
+                  style: AppTheme.title.copyWith(color: AppColors.primaryWarm),
                 ),
                 const SizedBox(height: 32),
                 SizedBox(

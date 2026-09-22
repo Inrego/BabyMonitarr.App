@@ -108,8 +108,11 @@ class _CoachMarkWidget extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.lightbulb,
-                            size: 18, color: AppColors.primaryWarm),
+                        const Icon(
+                          Icons.lightbulb,
+                          size: 18,
+                          color: AppColors.primaryWarm,
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           title,

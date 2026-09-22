@@ -581,8 +581,9 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       // its own stop() at 5s so the lowest-level wedge is also bounded.
       await _runSerialized(() async {
         if (_disposed || _intentionalDisconnect || _signalR.isConnected) return;
-        await _reconnectSignalRPreservingSessions()
-            .timeout(const Duration(seconds: 30));
+        await _reconnectSignalRPreservingSessions().timeout(
+          const Duration(seconds: 30),
+        );
       });
     } catch (e, st) {
       _log.warning('SignalR reconnect attempt failed', e, st);
@@ -896,9 +897,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
 
       final attempt = ++session.recoveryGeneration;
-      _log.info(
-        'Audio restore for room $roomId (attempt #$attempt)',
-      );
+      _log.info('Audio restore for room $roomId (attempt #$attempt)');
       final sw = Stopwatch()..start();
       try {
         // If the existing peer connection is still Connected (it self-recovered

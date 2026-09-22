@@ -14,8 +14,9 @@ class QrScanResult {
       apiKey!.isNotEmpty &&
       errorMessage == null;
 
-  String get apiKeyPrefix =>
-      apiKey != null && apiKey!.length >= 8 ? apiKey!.substring(0, 8) : apiKey ?? '';
+  String get apiKeyPrefix => apiKey != null && apiKey!.length >= 8
+      ? apiKey!.substring(0, 8)
+      : apiKey ?? '';
 }
 
 class QrPayloadParser {
@@ -62,7 +63,8 @@ class QrPayloadParser {
       return _extractFields(map);
     } catch (_) {
       return const QrScanResult(
-        errorMessage: 'Could not read the QR code data. Please generate a new one.',
+        errorMessage:
+            'Could not read the QR code data. Please generate a new one.',
       );
     }
   }

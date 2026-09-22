@@ -119,11 +119,7 @@ class WebRtcService {
       _log.info('$stepName done in ${sw.elapsedMilliseconds}ms');
       return result;
     } catch (e, st) {
-      _log.warning(
-        '$stepName failed after ${sw.elapsedMilliseconds}ms',
-        e,
-        st,
-      );
+      _log.warning('$stepName failed after ${sw.elapsedMilliseconds}ms', e, st);
       rethrow;
     }
   }

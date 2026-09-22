@@ -31,9 +31,7 @@ class AppLogger {
       }
       await _pruneOldFiles(_logDir!);
       _openSinkForToday();
-      Logger('AppLogger').info(
-        'Logging to ${_logDir!.path}',
-      );
+      Logger('AppLogger').info('Logging to ${_logDir!.path}');
     } catch (e, st) {
       debugPrint('AppLogger: failed to initialize file logging: $e');
       debugPrint('$st');

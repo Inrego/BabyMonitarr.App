@@ -141,7 +141,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
           child: CircularProgressIndicator(color: AppColors.primaryWarm),
         ),
         _ScanState.denied => _buildPermissionDeniedView(permanent: false),
-        _ScanState.permanentlyDenied => _buildPermissionDeniedView(permanent: true),
+        _ScanState.permanentlyDenied => _buildPermissionDeniedView(
+          permanent: true,
+        ),
         _ScanState.scanning => _buildScannerView(),
         _ScanState.connecting => _buildConnectingView(),
       },
@@ -151,15 +153,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
   Widget _buildScannerView() {
     return Stack(
       children: [
-        MobileScanner(
-          controller: _scannerController!,
-          onDetect: _onDetect,
-        ),
+        MobileScanner(controller: _scannerController!, onDetect: _onDetect),
         // Dark overlay with viewfinder cutout
-        CustomPaint(
-          size: Size.infinite,
-          painter: _ViewfinderPainter(),
-        ),
+        CustomPaint(size: Size.infinite, painter: _ViewfinderPainter()),
         // Top bar
         SafeArea(
           child: Padding(
@@ -209,7 +205,10 @@ class _QrScanScreenState extends State<QrScanScreen> {
                 if (_errorMessage != null) ...[
                   const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.liveRed.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
@@ -217,7 +216,9 @@ class _QrScanScreenState extends State<QrScanScreen> {
                     child: Text(
                       _errorMessage!,
                       textAlign: TextAlign.center,
-                      style: AppTheme.caption.copyWith(color: AppColors.liveRed),
+                      style: AppTheme.caption.copyWith(
+                        color: AppColors.liveRed,
+                      ),
                     ),
                   ),
                 ],
@@ -245,10 +246,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
           const SizedBox(height: 24),
           Text('Connecting...', style: AppTheme.subtitle),
           const SizedBox(height: 8),
-          Text(
-            'Setting up your monitor',
-            style: AppTheme.body,
-          ),
+          Text('Setting up your monitor', style: AppTheme.body),
         ],
       ),
     );
@@ -299,9 +297,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
             TextButton(
               onPressed: () {
                 Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (_) => const OnboardingScreen(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const OnboardingScreen()),
                 );
               },
               child: Text(
@@ -347,7 +343,11 @@ class _ViewfinderPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2 - 40);
     const boxSize = 260.0;
-    final rect = Rect.fromCenter(center: center, width: boxSize, height: boxSize);
+    final rect = Rect.fromCenter(
+      center: center,
+      width: boxSize,
+      height: boxSize,
+    );
 
     // Dark scrim with cutout
     final scrimPath = Path()
@@ -394,7 +394,12 @@ class _ViewfinderPainter extends CustomPainter {
       Path()
         ..moveTo(rect.left, rect.bottom - armLength)
         ..lineTo(rect.left, rect.bottom - radius)
-        ..quadraticBezierTo(rect.left, rect.bottom, rect.left + radius, rect.bottom)
+        ..quadraticBezierTo(
+          rect.left,
+          rect.bottom,
+          rect.left + radius,
+          rect.bottom,
+        )
         ..lineTo(rect.left + armLength, rect.bottom),
       bracketPaint,
     );
@@ -404,7 +409,12 @@ class _ViewfinderPainter extends CustomPainter {
       Path()
         ..moveTo(rect.right - armLength, rect.bottom)
         ..lineTo(rect.right - radius, rect.bottom)
-        ..quadraticBezierTo(rect.right, rect.bottom, rect.right, rect.bottom - radius)
+        ..quadraticBezierTo(
+          rect.right,
+          rect.bottom,
+          rect.right,
+          rect.bottom - radius,
+        )
         ..lineTo(rect.right, rect.bottom - armLength),
       bracketPaint,
     );

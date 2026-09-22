@@ -1314,4 +1314,3 @@ class _VideoRoomSession {
 
   _VideoRoomSession({required this.renderer});
 }
-

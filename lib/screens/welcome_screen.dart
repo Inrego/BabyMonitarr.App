@@ -25,11 +25,7 @@ class WelcomeScreen extends StatelessWidget {
                 ),
               ),
               const Spacer(flex: 1),
-              SvgPicture.asset(
-                'assets/icon/icon.svg',
-                width: 200,
-                height: 200,
-              ),
+              SvgPicture.asset('assets/icon/icon.svg', width: 200, height: 200),
               const SizedBox(height: 32),
               Text(
                 'Watch Over Your\nLittle One',

@@ -55,9 +55,7 @@ class OnboardingChoiceScreen extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: () {
                     Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const QrScanScreen(),
-                      ),
+                      MaterialPageRoute(builder: (_) => const QrScanScreen()),
                     );
                   },
                   icon: const Icon(Icons.qr_code_scanner, size: 22),

@@ -79,8 +79,7 @@ class NotificationService {
     );
 
     final absLevel = level.abs().toStringAsFixed(1);
-    final title =
-        roomName != null ? 'Sound Alert in $roomName' : 'Sound Alert';
+    final title = roomName != null ? 'Sound Alert in $roomName' : 'Sound Alert';
     try {
       await _plugin.show(
         id: _soundAlertNotificationId,

@@ -4,7 +4,9 @@ import 'package:babymonitarr/services/audio_session_service.dart';
 
 void main() {
   testWidgets('App starts successfully', (WidgetTester tester) async {
-    await tester.pumpWidget(BabyMonitarrApp(audioSession: AudioSessionService()));
+    await tester.pumpWidget(
+      BabyMonitarrApp(audioSession: AudioSessionService()),
+    );
     await tester.pump();
   });
 }

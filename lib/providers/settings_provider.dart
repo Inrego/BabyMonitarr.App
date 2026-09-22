@@ -24,7 +24,8 @@ class SettingsProvider extends ChangeNotifier {
   String? get serverUrl => _settings.serverUrl;
   String? get apiKey => _settings.apiKey;
   String? get apiKeyPrefix => _settings.apiKeyPrefix;
-  bool get hasApiKey => _settings.apiKey != null && _settings.apiKey!.isNotEmpty;
+  bool get hasApiKey =>
+      _settings.apiKey != null && _settings.apiKey!.isNotEmpty;
 
   Set<int> get monitoringRoomIds => _monitoringRoomIds;
   Set<int> get activeListeningRoomIds => _activeListeningRoomIds;
@@ -137,9 +138,7 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  AudioSettings getUpdatedAudioSettings({
-    double? volumeAdjustmentDb,
-  }) {
+  AudioSettings getUpdatedAudioSettings({double? volumeAdjustmentDb}) {
     _audioSettings = _audioSettings.copyWith(
       volumeAdjustmentDb: volumeAdjustmentDb,
     );

@@ -1,4 +1,5 @@
 import 'package:babymonitarr/services/signalr_service.dart';
+import 'package:signalr_netcore/iretry_policy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -115,6 +116,31 @@ void main() {
       expect(SignalRService.reconnectDelayForAttempt(4), 15000);
       expect(SignalRService.reconnectDelayForAttempt(8), 15000);
       expect(SignalRService.reconnectDelayForAttempt(1000), 15000);
+    });
+  });
+
+  group('NeverRetryPolicy', () {
+    // Guards the assumption that broke overnight on 2026-09-22: omitting
+    // .withAutomaticReconnect() does NOT disable signalr_netcore's reconnect
+    // loop (HubConnection defaults it to DefaultRetryPolicy), so the library
+    // raced ConnectionProvider's own loop. Reconnect must stay single-driver.
+    test('never schedules a retry, whatever the attempt or reason', () {
+      const policy = NeverRetryPolicy();
+      for (final previousRetryCount in [0, 1, 5, 100]) {
+        expect(
+          policy.nextRetryDelayInMilliseconds(
+            RetryContext(
+              previousRetryCount * 1000,
+              previousRetryCount,
+              Exception('dropped'),
+            ),
+          ),
+          isNull,
+          reason:
+              'attempt $previousRetryCount must not be retried by the '
+              'library; ConnectionProvider owns reconnect',
+        );
+      }
     });
   });
 }

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:signalr_netcore/signalr_client.dart';
+// Not re-exported by signalr_client.dart, so it needs its own import.
+import 'package:signalr_netcore/iretry_policy.dart';
 import '../models/audio_settings.dart';
 import '../models/global_settings.dart';
 import '../models/nest_device.dart';
@@ -10,6 +12,18 @@ import '../models/room.dart';
 import '../models/webrtc_client_config.dart';
 
 final _log = Logger('SignalRService');
+
+/// Disables signalr_netcore's built-in reconnect loop.
+///
+/// Returning null on the first attempt makes HubConnection._reconnect() call
+/// _completeClose() immediately, so `onclose` fires and ConnectionProvider's
+/// reconnect loop is the single driver. See the note in [SignalRService.connect].
+class NeverRetryPolicy implements IRetryPolicy {
+  const NeverRetryPolicy();
+
+  @override
+  int? nextRetryDelayInMilliseconds(RetryContext retryContext) => null;
+}
 
 class SignalRService {
   static const int _defaultKeepAliveMs = 10000;
@@ -50,13 +64,22 @@ class SignalRService {
 
     final logger = Logger('SignalR');
 
-    // Build the new HubConnection. We intentionally do NOT use
-    // `.withAutomaticReconnect(...)`: the underlying signalr_netcore policy
-    // silently stops retrying after a TimeoutException during negotiation
-    // (observed in production at 2026-05-19), leaving the library in a
-    // permanent Reconnecting/zombie state with no `onclose` callback.
+    // We intentionally do NOT let signalr_netcore drive reconnection: its
+    // policy silently stops retrying after a TimeoutException during
+    // negotiation (observed in production at 2026-05-19), leaving the library
+    // in a permanent Reconnecting/zombie state with no `onclose` callback.
     // Reconnect is driven from ConnectionProvider._ensureSignalRReconnectLoop()
     // with our own infinite backoff via SignalRService.reconnectDelayForAttempt.
+    //
+    // Opting out requires an explicit never-retry policy, NOT just omitting
+    // `.withAutomaticReconnect(...)`. In signalr_netcore 1.4.4 the HubConnection
+    // constructor does `_reconnectPolicy = reconnectPolicy ?? DefaultRetryPolicy()`
+    // (hub_connection.dart:162), so omitting the builder call leaves automatic
+    // reconnect fully ON. Both loops then raced on every drop: the library's
+    // `_reconnect()` started a negotiation, our loop called disconnect() on top
+    // of it, and the result was `Failed to start the connection: The connection
+    // was stopped during negotiation` followed by a stop() that wedged until
+    // the 5s bail-out — 17 times in the 2026-09-22 overnight log.
     final connection = HubConnectionBuilder()
         .withUrl(
           hubUrl,
@@ -64,12 +87,12 @@ class SignalRService {
             logger: logger,
             logMessageContent: true,
             requestTimeout: 10000,
-            accessTokenFactory:
-                apiKey != null && apiKey.isNotEmpty
-                    ? () async => apiKey
-                    : null,
+            accessTokenFactory: apiKey != null && apiKey.isNotEmpty
+                ? () async => apiKey
+                : null,
           ),
         )
+        .withAutomaticReconnect(reconnectPolicy: const NeverRetryPolicy())
         .configureLogging(logger)
         .build();
     _connection = connection;
@@ -89,9 +112,10 @@ class SignalRService {
       _connectionStateController.add(HubConnectionState.Disconnected);
     });
 
-    // Kept for safety though no path emits Reconnecting now that we've
-    // dropped withAutomaticReconnect. If a future change reintroduces it,
-    // the state still reaches ConnectionProvider.
+    // Kept for safety though no path emits Reconnecting under
+    // NeverRetryPolicy: _reconnect() bails before setting that state. If a
+    // future change reintroduces retries, the state still reaches
+    // ConnectionProvider.
     connection.onreconnecting(({error}) {
       if (_disposed || !isCurrent()) return;
       _connectionStateController.add(HubConnectionState.Reconnecting);

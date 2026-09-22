@@ -5,6 +5,7 @@ import '../models/audio_settings.dart';
 import '../models/global_settings.dart';
 import '../models/nest_device.dart';
 import '../models/room.dart';
+import '../providers/cast_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/room_provider.dart';
 import '../providers/settings_provider.dart';
@@ -49,6 +50,7 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
   List<NestDevice> _nestDevices = const <NestDevice>[];
   bool _saving = false;
   bool _bootstrapped = false;
+  final Set<String> _castTargets = <String>{};
 
   @override
   void initState() {
@@ -109,6 +111,19 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
     if (_streamSourceType == 'google_nest') {
       unawaited(_refreshNestIntegration());
     }
+
+    unawaited(_loadCastTargets(room.id));
+  }
+
+  Future<void> _loadCastTargets(int roomId) async {
+    final cast = context.read<CastProvider>();
+    final targets = await cast.loadRoomTargets(roomId);
+    if (!mounted || _hydratedRoomId != roomId) return;
+    setState(() {
+      _castTargets
+        ..clear()
+        ..addAll(targets);
+    });
   }
 
   Future<void> _addMonitor() async {
@@ -135,6 +150,7 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
   Future<void> _save() async {
     final roomProvider = context.read<RoomProvider>();
     final settingsProvider = context.read<SettingsProvider>();
+    final castProvider = context.read<CastProvider>();
     final room = roomProvider.editingRoom;
     if (room == null || _saving) return;
 
@@ -160,6 +176,10 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
       );
 
       await roomProvider.saveRoomAndGlobalSettings(updatedRoom, global);
+      await castProvider.saveRoomTargets(
+        room.id,
+        _castTargets.toList(growable: false),
+      );
       settingsProvider.updateAudioSettings(
         _mergeGlobalIntoAudioSettings(settingsProvider.audioSettings, global),
       );
@@ -534,6 +554,8 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 14),
+                  _buildCastSection(),
+                  const SizedBox(height: 14),
                   _sectionCard(
                     title: 'Actions',
                     children: [
@@ -573,6 +595,68 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
                 ],
               ],
             ),
+    );
+  }
+
+  /// Default cast targets for this room. Saved with the rest of the
+  /// configuration; starting an actual cast happens from the monitor screen.
+  Widget _buildCastSection() {
+    return Consumer<CastProvider>(
+      builder: (context, cast, _) {
+        final devices = cast.devices;
+        return _sectionCard(
+          title: 'Cast Targets',
+          children: [
+            Text(
+              'Pre-select the displays and speakers offered when casting this '
+              'monitor.',
+              style: AppTheme.caption,
+            ),
+            const SizedBox(height: 8),
+            if (devices.isEmpty)
+              Text(
+                cast.isScanning
+                    ? 'Scanning for cast devices...'
+                    : 'No cast devices found yet.',
+                style: AppTheme.caption.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              )
+            else
+              ...devices.map(
+                (device) => CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: _castTargets.contains(device.deviceId),
+                  onChanged: (value) => setState(() {
+                    if (value ?? false) {
+                      _castTargets.add(device.deviceId);
+                    } else {
+                      _castTargets.remove(device.deviceId);
+                    }
+                  }),
+                  secondary: Icon(
+                    device.isVideoCapable ? Icons.tv : Icons.speaker,
+                    color: AppColors.textSecondary,
+                  ),
+                  title: Text(
+                    device.name.isEmpty ? device.host : device.name,
+                    style: AppTheme.body.copyWith(color: AppColors.textPrimary),
+                  ),
+                  subtitle: device.isOnline
+                      ? null
+                      : Text('Offline', style: AppTheme.caption),
+                ),
+              ),
+            const SizedBox(height: 4),
+            TextButton.icon(
+              onPressed: cast.isScanning ? null : cast.scanForDevices,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Scan for cast devices'),
+            ),
+          ],
+        );
+      },
     );
   }
 

@@ -4,6 +4,7 @@ import 'package:signalr_netcore/signalr_client.dart';
 // Not re-exported by signalr_client.dart, so it needs its own import.
 import 'package:signalr_netcore/iretry_policy.dart';
 import '../models/audio_settings.dart';
+import '../models/cast_device.dart';
 import '../models/global_settings.dart';
 import '../models/nest_device.dart';
 import '../models/remote_ice_candidate.dart';
@@ -45,6 +46,7 @@ class SignalRService {
   final _roomsUpdatedController = StreamController<void>.broadcast();
   final _activeRoomChangedController = StreamController<Room>.broadcast();
   final _settingsUpdatedController = StreamController<void>.broadcast();
+  final _castStateChangedController = StreamController<void>.broadcast();
 
   Stream<HubConnectionState> get connectionState =>
       _connectionStateController.stream;
@@ -55,6 +57,7 @@ class SignalRService {
   Stream<void> get onRoomsUpdated => _roomsUpdatedController.stream;
   Stream<Room> get onActiveRoomChanged => _activeRoomChangedController.stream;
   Stream<void> get onSettingsUpdated => _settingsUpdatedController.stream;
+  Stream<void> get onCastStateChanged => _castStateChangedController.stream;
 
   bool get isConnected => _connection?.state == HubConnectionState.Connected;
 
@@ -167,6 +170,11 @@ class SignalRService {
     connection.on('SettingsUpdated', (_) {
       if (!isCurrent()) return;
       _settingsUpdatedController.add(null);
+    });
+
+    connection.on('CastStateChanged', (_) {
+      if (!isCurrent()) return;
+      _castStateChangedController.add(null);
     });
 
     try {
@@ -354,6 +362,79 @@ class SignalRService {
     return map == null ? null : Room.fromJson(map);
   }
 
+  Future<List<CastDevice>> getCastDevices() async {
+    final result = await _invoke('GetCastDevices');
+    return _parseCastDevices(result);
+  }
+
+  Future<List<CastDevice>> refreshCastDevices() async {
+    final result = await _invoke('RefreshCastDevices');
+    return _parseCastDevices(result);
+  }
+
+  Future<CastDevice?> addCastDevice({
+    required String host,
+    int port = 8009,
+    String? name,
+    bool isVideoCapable = false,
+  }) async {
+    final result = await _invoke(
+      'AddCastDevice',
+      args: [host, port, name ?? '', isVideoCapable],
+    );
+    final map = _asJsonMap(result);
+    return map == null ? null : CastDevice.fromJson(map);
+  }
+
+  Future<bool> forgetCastDevice(String deviceId) async {
+    final result = await _invoke('ForgetCastDevice', args: [deviceId]);
+    return result == true;
+  }
+
+  Future<List<String>> getRoomCastTargets(int roomId) async {
+    final result = await _invoke('GetRoomCastTargets', args: [roomId]);
+    if (result is! List) return const [];
+    return result.map((raw) => raw.toString()).toList(growable: false);
+  }
+
+  Future<void> setRoomCastTargets(int roomId, List<String> deviceIds) async {
+    await _invoke('SetRoomCastTargets', args: [roomId, deviceIds]);
+  }
+
+  Future<CastStartResult> startCast(int roomId, List<String> deviceIds) async {
+    final result = await _invoke('StartCast', args: [roomId, deviceIds]);
+    final map = _asJsonMap(result);
+    return map == null
+        ? const CastStartResult()
+        : CastStartResult.fromJson(map);
+  }
+
+  Future<int> stopCast(int roomId, List<String> deviceIds) async {
+    final result = await _invoke('StopCast', args: [roomId, deviceIds]);
+    if (result is int) return result;
+    if (result is num) return result.toInt();
+    return 0;
+  }
+
+  Future<List<CastSession>> getCastSessions() async {
+    final result = await _invoke('GetCastSessions');
+    if (result is! List) return const [];
+    return result
+        .map((raw) => _asJsonMap(raw))
+        .whereType<Map<String, dynamic>>()
+        .map(CastSession.fromJson)
+        .toList(growable: false);
+  }
+
+  static List<CastDevice> _parseCastDevices(Object? result) {
+    if (result is! List) return const [];
+    return result
+        .map((raw) => _asJsonMap(raw))
+        .whereType<Map<String, dynamic>>()
+        .map(CastDevice.fromJson)
+        .toList(growable: false);
+  }
+
   Future<Object?> _invoke(String method, {List<Object>? args}) {
     _ensureConnected();
     return _connection!
@@ -401,6 +482,7 @@ class SignalRService {
     _roomsUpdatedController.close();
     _activeRoomChangedController.close();
     _settingsUpdatedController.close();
+    _castStateChangedController.close();
   }
 
   void _ensureConnected() {

@@ -6,11 +6,13 @@ import 'package:provider/provider.dart';
 import '../models/audio_state.dart';
 import '../models/room.dart';
 import '../providers/audio_provider.dart';
+import '../providers/cast_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/room_icons.dart';
+import '../widgets/cast_target_sheet.dart';
 import '../widgets/live_indicator.dart';
 import '../widgets/sound_level_graph.dart';
 import '../widgets/status_pill.dart';
@@ -70,6 +72,7 @@ class _MonitorDetailScreenState extends State<MonitorDetailScreen> {
             LiveIndicator(isLive: isLive),
           ],
         ),
+        actions: [_buildCastAction()],
       ),
       body: SafeArea(
         child: ListView(
@@ -86,6 +89,23 @@ class _MonitorDetailScreenState extends State<MonitorDetailScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Cast entry point: lit when this room is playing on at least one receiver.
+  Widget _buildCastAction() {
+    return Consumer<CastProvider>(
+      builder: (context, cast, _) {
+        final casting = cast.isRoomCasting(room.id);
+        return IconButton(
+          tooltip: casting ? 'Casting' : 'Cast to a device',
+          icon: Icon(
+            casting ? Icons.cast_connected : Icons.cast,
+            color: casting ? AppColors.primaryWarm : AppColors.textSecondary,
+          ),
+          onPressed: () => showCastTargetSheet(context, room),
+        );
+      },
     );
   }
 

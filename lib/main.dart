@@ -9,6 +9,7 @@ import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
 import 'providers/connection_provider.dart';
 import 'providers/audio_provider.dart';
+import 'providers/cast_provider.dart';
 import 'providers/room_provider.dart';
 import 'providers/settings_provider.dart';
 import 'services/app_logger.dart';
@@ -62,6 +63,14 @@ class BabyMonitarrApp extends StatelessWidget {
           update: (_, settings, connection) {
             connection!.updateSettings(settings);
             return connection;
+          },
+        ),
+        ChangeNotifierProxyProvider<ConnectionProvider, CastProvider>(
+          create: (_) => CastProvider(),
+          update: (_, connection, cast) {
+            final provider = cast ?? CastProvider();
+            provider.bindConnection(connection);
+            return provider;
           },
         ),
         ChangeNotifierProxyProvider<ConnectionProvider, RoomProvider>(

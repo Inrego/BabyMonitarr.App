@@ -1,10 +1,14 @@
 package com.inrego.babymonitarr
 
+import android.app.ActivityManager
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import android.util.Rational
 import io.flutter.embedding.android.FlutterActivity
@@ -19,6 +23,11 @@ class MainActivity : FlutterActivity() {
         private const val lifecycleChannel = "babymonitarr/lifecycle"
         private const val monitoringServiceChannel = "babymonitarr/monitoring_service"
         private const val pipChannel = "babymonitarr/pip"
+        private const val backgroundRestrictionsChannel = "babymonitarr/background_restrictions"
+        // Hidden AOSP action; opens the per-app "Allow background usage" page
+        // on Android 14+ and ColorOS. Falls back to app details when missing.
+        private const val advancedPowerUsageDetailAction =
+            "android.settings.VIEW_ADVANCED_POWER_USAGE_DETAIL"
         private const val cleanupMethod = "cleanupWebRtcOrientationReceiver"
         private const val startMonitoringServiceMethod = "startMonitoringService"
         private const val updateMonitoringServiceMethod = "updateMonitoringService"
@@ -89,6 +98,15 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, backgroundRestrictionsChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getStatus" -> result.success(backgroundRestrictionStatus())
+                    "openSettings" -> result.success(openBackgroundUsageSettings())
+                    else -> result.notImplemented()
+                }
+            }
+
         pipMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, pipChannel)
         pipMethodChannel!!.setMethodCallHandler { call, result ->
             when (call.method) {
@@ -154,6 +172,35 @@ class MainActivity : FlutterActivity() {
         } else {
             pipMethodChannel?.invokeMethod("onPipDismissed", null)
         }
+    }
+
+    private fun backgroundRestrictionStatus(): Map<String, Boolean> {
+        val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val activity = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        return mapOf(
+            "ignoringBatteryOptimizations" to
+                (Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                    power.isIgnoringBatteryOptimizations(packageName)),
+            "backgroundRestricted" to
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && activity.isBackgroundRestricted),
+        )
+    }
+
+    private fun openBackgroundUsageSettings(): Boolean {
+        val packageUri = Uri.fromParts("package", packageName, null)
+        val candidates = listOf(
+            Intent(advancedPowerUsageDetailAction, packageUri),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri),
+        )
+        for (intent in candidates) {
+            try {
+                startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return true
+            } catch (e: Exception) {
+                Log.w(tag, "Settings intent ${intent.action} not available", e)
+            }
+        }
+        return false
     }
 
     private fun cleanupWebRtcOrientationReceiver() {

@@ -18,7 +18,9 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/audio_level_scale.dart';
 import '../utils/room_icons.dart';
+import '../services/background_restriction_service.dart';
 import '../services/pip_service.dart';
+import '../widgets/background_restriction_card.dart';
 import '../widgets/coach_mark_overlay.dart';
 import '../widgets/zoomable_video_view.dart';
 import 'monitor_detail_screen.dart';
@@ -47,6 +49,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _resumeRecoveryInProgress = false;
   bool _restoringActiveListening = false;
   final PipService _pipService = PipService();
+  final BackgroundRestrictionService _backgroundRestrictions =
+      BackgroundRestrictionService();
+  BackgroundRestrictionStatus _backgroundStatus =
+      BackgroundRestrictionStatus.unrestricted;
   bool _pipSupported = false;
   final GlobalKey _keepScreenOnKey = GlobalKey();
   final Map<int, GlobalKey> _videoPreviewKeys = <int, GlobalKey>{};
@@ -59,6 +65,16 @@ class _DashboardScreenState extends State<DashboardScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _initializeData();
     });
+    unawaited(_refreshBackgroundStatus());
+  }
+
+  Future<void> _refreshBackgroundStatus() async {
+    final status = await _backgroundRestrictions.getStatus();
+    if (!mounted || status == _backgroundStatus) return;
+    if (status.isRestricted) {
+      _log.warning('Background usage restricted: $status');
+    }
+    setState(() => _backgroundStatus = status);
   }
 
   Future<void> _initializeData() async {
@@ -630,6 +646,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           });
         }
         unawaited(_recoverVideoSessionsAfterResume());
+        unawaited(_refreshBackgroundStatus());
         break;
       default:
         break;
@@ -728,6 +745,12 @@ class _DashboardScreenState extends State<DashboardScreen>
           children: [
             _buildHeader(),
             const SizedBox(height: 20),
+            if (_backgroundStatus.isRestricted) ...[
+              BackgroundRestrictionCard(
+                onOpenSettings: _backgroundRestrictions.openSettings,
+              ),
+              const SizedBox(height: 12),
+            ],
             if (!connection.isConnected)
               _buildDisconnectedBanner(connection.connectionInfo),
             if (!connection.isConnected) const SizedBox(height: 12),

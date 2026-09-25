@@ -34,7 +34,7 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".dev"
-            manifestPlaceholders["appLabel"] = "BabyMonitarr Dev"
+            manifestPlaceholders["appLabel"] = "DEV BabyMonitarr"
         }
         release {
             manifestPlaceholders["appLabel"] = "BabyMonitarr"

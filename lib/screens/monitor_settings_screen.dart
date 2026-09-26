@@ -878,8 +878,6 @@ class _MonitorSettingsScreenState extends State<MonitorSettingsScreen> {
     );
   }
 
-  int _parseInt(String value, int fallback) => int.tryParse(value) ?? fallback;
-
   double _parseDouble(String value, double fallback) =>
       double.tryParse(value) ?? fallback;
 

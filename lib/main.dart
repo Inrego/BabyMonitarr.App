@@ -14,6 +14,7 @@ import 'providers/room_provider.dart';
 import 'providers/settings_provider.dart';
 import 'services/app_logger.dart';
 import 'services/audio_session_service.dart';
+import 'services/native_log_bridge.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/dashboard_screen.dart';
 
@@ -22,6 +23,7 @@ void main() async {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
       await AppLogger.init();
+      NativeLogBridge().register();
 
       FlutterError.onError = (details) {
         Logger(

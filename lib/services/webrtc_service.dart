@@ -70,6 +70,9 @@ class WebRtcService {
       _log.info('Received track: ${event.track.kind}');
       if (event.track.kind == 'audio') {
         _remoteAudioTracks.add(event.track);
+        // A rebuilt peer connection must not play a muted room (user mute or
+        // talkback) even briefly before the caller re-applies the state.
+        if (!_audioEnabled) event.track.enabled = false;
       }
     };
 

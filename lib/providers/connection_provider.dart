@@ -8,6 +8,7 @@ import '../models/remote_ice_candidate.dart';
 import '../services/audio_session_service.dart';
 import '../services/notification_service.dart';
 import '../services/signalr_service.dart';
+import '../services/talkback_audio_control.dart';
 import '../services/vibration_service.dart';
 import '../services/webrtc_service.dart';
 import 'audio_provider.dart';
@@ -16,7 +17,9 @@ import 'settings_provider.dart';
 
 final _log = Logger('ConnectionProvider');
 
-class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
+class ConnectionProvider extends ChangeNotifier
+    with WidgetsBindingObserver
+    implements TalkbackAudioControl {
   static const Duration _watchdogInterval = Duration(seconds: 8);
   static const Duration _audioStallThreshold = Duration(seconds: 18);
   static const Duration _disconnectAlertThreshold = Duration(seconds: 30);
@@ -186,7 +189,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         await _startAudioWebRtcHandshake(session);
 
         session.audioMuted = false;
-        session.webRtc.setAudioEnabled(true);
+        _applyRoomAudio(session);
         _startWatchdog();
         await _refreshMonitoringNotification();
         unawaited(_notification.requestBatteryOptimizationExemption());
@@ -235,7 +238,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
     final session = _audioSessions[roomId];
     if (session == null) return;
     session.audioMuted = !session.audioMuted;
-    session.webRtc.setAudioEnabled(!session.audioMuted);
+    _applyRoomAudio(session);
     notifyListeners();
   }
 
@@ -248,9 +251,42 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
   void setAudioEnabledForAll(bool enabled) {
     for (final session in _audioSessions.values) {
       session.audioMuted = !enabled;
-      session.webRtc.setAudioEnabled(enabled);
+      _applyRoomAudio(session);
     }
     notifyListeners();
+  }
+
+  /// Rooms whose incoming audio is muted while the user talks into them.
+  /// Kept apart from `audioMuted` so the user's own mute choice survives, and
+  /// re-applied by every recovery path through [_applyRoomAudio].
+  final Set<int> _talkbackDuckedRooms = <int>{};
+
+  bool isTalkbackDucked(int roomId) => _talkbackDuckedRooms.contains(roomId);
+
+  void _applyRoomAudio(_AudioRoomSession session) {
+    session.webRtc.setAudioEnabled(
+      !session.audioMuted && !_talkbackDuckedRooms.contains(session.roomId),
+    );
+  }
+
+  @override
+  Future<void> beginTalkback(int roomId) async {
+    _log.info('Talkback started for room $roomId: muting room audio');
+    _talkbackDuckedRooms.add(roomId);
+    final session = _audioSessions[roomId];
+    if (session != null) _applyRoomAudio(session);
+    await _audioSession.beginTalkback();
+  }
+
+  @override
+  Future<void> endTalkback(int roomId) async {
+    _log.info('Talkback ended for room $roomId: restoring room audio');
+    _talkbackDuckedRooms.remove(roomId);
+    if (_talkbackDuckedRooms.isEmpty) {
+      await _audioSession.endTalkback();
+    }
+    final session = _audioSessions[roomId];
+    if (session != null) _applyRoomAudio(session);
   }
 
   Future<void> syncAudioSettings() async {
@@ -767,7 +803,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         !identical(_audioSessions[roomId], current)) {
       return;
     }
-    current.webRtc.setAudioEnabled(!current.audioMuted);
+    _applyRoomAudio(current);
     _markAudioPacketReceived(current);
     _updateState(MonitorConnectionState.connected);
     _log.info(
@@ -913,7 +949,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
           // Defensive: the PC stayed up but the remote track may have been
           // left disabled by an earlier failed restore. Re-apply the desired
           // enabled state so the skip path can never silently mute audio.
-          session.webRtc.setAudioEnabled(!session.audioMuted);
+          _applyRoomAudio(session);
           _updateState(MonitorConnectionState.connected);
           await _refreshMonitoringNotification();
           await _notification.clearMonitoringDisconnectedNotification();
@@ -967,7 +1003,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         !identical(_audioSessions[roomId], session)) {
       return;
     }
-    session.webRtc.setAudioEnabled(!session.audioMuted);
+    _applyRoomAudio(session);
     _markAudioPacketReceived(session);
     await _refreshMonitoringNotification();
     await _notification.clearMonitoringDisconnectedNotification();
@@ -1115,7 +1151,7 @@ class ConnectionProvider extends ChangeNotifier with WidgetsBindingObserver {
         !identical(_audioSessions[roomId], session)) {
       return;
     }
-    session.webRtc.setAudioEnabled(!session.audioMuted);
+    _applyRoomAudio(session);
     _markAudioPacketReceived(session);
     _log.info(
       'Resume audio rebuild for room $roomId succeeded in '

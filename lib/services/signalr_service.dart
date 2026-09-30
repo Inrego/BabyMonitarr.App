@@ -10,7 +10,9 @@ import '../models/nest_device.dart';
 import '../models/remote_ice_candidate.dart';
 import '../models/remote_video_ice_candidate.dart';
 import '../models/room.dart';
+import '../models/talkback_status.dart';
 import '../models/webrtc_client_config.dart';
+import 'talkback_hub.dart';
 
 final _log = Logger('SignalRService');
 
@@ -26,7 +28,7 @@ class NeverRetryPolicy implements IRetryPolicy {
   int? nextRetryDelayInMilliseconds(RetryContext retryContext) => null;
 }
 
-class SignalRService {
+class SignalRService implements TalkbackHub {
   static const int _defaultKeepAliveMs = 10000;
   static const int _defaultServerTimeoutMs = 35000;
   // Sits above the 10s HTTP requestTimeout and below the 35s server timeout so
@@ -47,7 +49,12 @@ class SignalRService {
   final _activeRoomChangedController = StreamController<Room>.broadcast();
   final _settingsUpdatedController = StreamController<void>.broadcast();
   final _castStateChangedController = StreamController<void>.broadcast();
+  final _talkbackStatusController =
+      StreamController<TalkbackStatus>.broadcast();
+  final _talkbackIceCandidateController =
+      StreamController<RemoteIceCandidate>.broadcast();
 
+  @override
   Stream<HubConnectionState> get connectionState =>
       _connectionStateController.stream;
   Stream<RemoteIceCandidate> get onIceCandidate =>
@@ -58,7 +65,14 @@ class SignalRService {
   Stream<Room> get onActiveRoomChanged => _activeRoomChangedController.stream;
   Stream<void> get onSettingsUpdated => _settingsUpdatedController.stream;
   Stream<void> get onCastStateChanged => _castStateChangedController.stream;
+  @override
+  Stream<TalkbackStatus> get onTalkbackStatusChanged =>
+      _talkbackStatusController.stream;
+  @override
+  Stream<RemoteIceCandidate> get onTalkbackIceCandidate =>
+      _talkbackIceCandidateController.stream;
 
+  @override
   bool get isConnected => _connection?.state == HubConnectionState.Connected;
 
   Future<void> connect(String serverUrl, {String? apiKey}) async {
@@ -177,6 +191,30 @@ class SignalRService {
       _castStateChangedController.add(null);
     });
 
+    connection.on('TalkbackStatusChanged', (arguments) {
+      if (!isCurrent()) return;
+      final status = tryParseTalkbackStatusArgs(
+        arguments is List ? arguments : null,
+      );
+      if (status == null) {
+        _log.warning('Ignoring malformed TalkbackStatusChanged payload');
+        return;
+      }
+      _talkbackStatusController.add(status);
+    });
+
+    connection.on('ReceiveTalkbackIceCandidate', (arguments) {
+      if (!isCurrent()) return;
+      final parsed = tryParseIceCandidateArgs(
+        arguments is List ? arguments : null,
+      );
+      if (parsed == null) {
+        _log.warning('Ignoring malformed ReceiveTalkbackIceCandidate payload');
+        return;
+      }
+      _talkbackIceCandidateController.add(parsed);
+    });
+
     try {
       await connection.start();
       if (!isCurrent()) return;
@@ -264,6 +302,70 @@ class SignalRService {
     }
   }
 
+  @override
+  Future<TalkbackStatus> getTalkbackStatus(int roomId) async {
+    final result = await _invoke('GetTalkbackStatus', args: [roomId]);
+    final map = _asJsonMap(result);
+    return map == null
+        ? TalkbackStatus(roomId: roomId)
+        : TalkbackStatus.fromJson(map);
+  }
+
+  @override
+  Future<String> startTalkbackUplink(int roomId) async {
+    final result = await _invoke('StartTalkbackUplink', args: [roomId]);
+    return result as String;
+  }
+
+  @override
+  Future<void> setTalkbackRemoteDescription(
+    int roomId,
+    String type,
+    String sdp,
+  ) async {
+    await _invoke('SetTalkbackRemoteDescription', args: [roomId, type, sdp]);
+  }
+
+  @override
+  Future<void> addTalkbackIceCandidate(
+    int roomId,
+    String candidate,
+    String? sdpMid,
+    int? sdpMLineIndex,
+  ) async {
+    final args = <Object>[roomId, candidate, sdpMid ?? '', sdpMLineIndex ?? 0];
+    await _invoke('AddTalkbackIceCandidate', args: args);
+  }
+
+  @override
+  Future<void> stopTalkbackUplink(int roomId) async {
+    if (!isConnected) return;
+    await _invoke('StopTalkbackUplink', args: [roomId]);
+  }
+
+  @override
+  Future<TalkbackStartResult> startTalkback(int roomId) async {
+    final result = await _invoke('StartTalkback', args: [roomId]);
+    final map = _asJsonMap(result);
+    return map == null
+        ? const TalkbackStartResult(success: false)
+        : TalkbackStartResult.fromJson(map);
+  }
+
+  @override
+  Future<void> stopTalkback(int roomId) async {
+    if (!isConnected) return;
+    await _invoke('StopTalkback', args: [roomId]);
+  }
+
+  @override
+  Future<void> setTalkbackVolume(int roomId, double volume) async {
+    await _invoke(
+      'SetTalkbackVolume',
+      args: [roomId, TalkbackStatus.clampVolume(volume)],
+    );
+  }
+
   Future<AudioSettings> getAudioSettings() async {
     final result = await _invoke('GetAudioSettings');
     final map = _asJsonMap(result);
@@ -276,6 +378,7 @@ class SignalRService {
     return map == null ? const GlobalSettings() : GlobalSettings.fromJson(map);
   }
 
+  @override
   Future<WebRtcClientConfig> getWebRtcConfig() async {
     if (_cachedWebRtcConfig != null) {
       return _cachedWebRtcConfig!;
@@ -483,6 +586,8 @@ class SignalRService {
     _activeRoomChangedController.close();
     _settingsUpdatedController.close();
     _castStateChangedController.close();
+    _talkbackStatusController.close();
+    _talkbackIceCandidateController.close();
   }
 
   void _ensureConnected() {
@@ -584,6 +689,13 @@ class SignalRService {
       sdpMid: sdpMid,
       sdpMLineIndex: sdpMLineIndex,
     );
+  }
+
+  static TalkbackStatus? tryParseTalkbackStatusArgs(List? arguments) {
+    if (arguments == null || arguments.isEmpty) return null;
+    final map = _asJsonMap(arguments.first);
+    if (map == null || _parseInt(map['roomId']) == null) return null;
+    return TalkbackStatus.fromJson(map);
   }
 
   static int? _parseInt(Object? value) {

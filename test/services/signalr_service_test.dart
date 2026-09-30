@@ -143,4 +143,38 @@ void main() {
       }
     });
   });
+
+  group('SignalRService.tryParseTalkbackStatusArgs', () {
+    test('parses a status map from the first argument', () {
+      final status = SignalRService.tryParseTalkbackStatusArgs([
+        {
+          'roomId': 3,
+          'supported': true,
+          'available': false,
+          'unavailableReason': 'camera_error',
+          'message': 'Camera did not answer',
+          'state': 'open',
+          'busy': false,
+          'volume': 0.5,
+        },
+      ]);
+
+      expect(status, isNotNull);
+      expect(status!.roomId, 3);
+      expect(status.unavailableReason, 'camera_error');
+      expect(status.volume, 0.5);
+    });
+
+    test('rejects missing, non-map, or roomless payloads', () {
+      expect(SignalRService.tryParseTalkbackStatusArgs(null), isNull);
+      expect(SignalRService.tryParseTalkbackStatusArgs([]), isNull);
+      expect(SignalRService.tryParseTalkbackStatusArgs(['nope']), isNull);
+      expect(
+        SignalRService.tryParseTalkbackStatusArgs([
+          {'supported': true},
+        ]),
+        isNull,
+      );
+    });
+  });
 }

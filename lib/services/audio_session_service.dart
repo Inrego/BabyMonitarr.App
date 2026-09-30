@@ -17,7 +17,25 @@ class AudioSessionService {
             AndroidAudioAttributesContentType.speech,
       );
 
+  // While talking, the mic needs a voice-communication route so the platform
+  // echo canceller runs. Monitoring playout for the talked-to room is muted
+  // meanwhile, so the earpiece/speaker change doesn't matter to it.
+  static final AndroidAudioConfiguration _androidTalkbackConfig =
+      AndroidAudioConfiguration(
+        manageAudioFocus: false,
+        androidAudioMode: AndroidAudioMode.inCommunication,
+        androidAudioFocusMode: AndroidAudioFocusMode.gain,
+        androidAudioStreamType: AndroidAudioStreamType.voiceCall,
+        androidAudioAttributesUsageType:
+            AndroidAudioAttributesUsageType.voiceCommunication,
+        androidAudioAttributesContentType:
+            AndroidAudioAttributesContentType.speech,
+      );
+
   bool _configured = false;
+  bool _talkbackActive = false;
+
+  bool get isTalkbackActive => _talkbackActive;
 
   /// Configures platform audio sessions for media playback (not voice call).
   /// Call once at app startup.
@@ -27,8 +45,23 @@ class AudioSessionService {
   }
 
   /// Re-applies audio configuration. Use before reconnecting WebRTC
-  /// to ensure audio mode hasn't reverted.
+  /// to ensure audio mode hasn't reverted. While talkback is active this keeps
+  /// the play-and-record configuration, so a monitoring reconnect mid-talk
+  /// doesn't cut the microphone.
   Future<void> ensureConfigured() async {
+    await _applyPlatformConfig();
+  }
+
+  /// Switches to play-and-record / voice communication for talkback.
+  Future<void> beginTalkback() async {
+    _talkbackActive = true;
+    await _applyPlatformConfig();
+  }
+
+  /// Restores the monitoring (playback-only) configuration.
+  Future<void> endTalkback() async {
+    if (!_talkbackActive) return;
+    _talkbackActive = false;
     await _applyPlatformConfig();
   }
 
@@ -52,10 +85,25 @@ class AudioSessionService {
       await _ensureWebRtcInitialized();
 
       if (WebRTC.platformIsAndroid) {
-        await Helper.setAndroidAudioConfiguration(_androidMonitoringConfig);
+        await Helper.setAndroidAudioConfiguration(
+          _talkbackActive ? _androidTalkbackConfig : _androidMonitoringConfig,
+        );
       }
 
-      if (WebRTC.platformIsIOS || WebRTC.platformIsMacOS) {
+      if ((WebRTC.platformIsIOS || WebRTC.platformIsMacOS) && _talkbackActive) {
+        await Helper.setAppleAudioConfiguration(
+          AppleAudioConfiguration(
+            appleAudioCategory: AppleAudioCategory.playAndRecord,
+            appleAudioCategoryOptions: {
+              AppleAudioCategoryOption.allowBluetooth,
+              AppleAudioCategoryOption.allowBluetoothA2DP,
+              AppleAudioCategoryOption.defaultToSpeaker,
+            },
+            appleAudioMode: AppleAudioMode.voiceChat,
+          ),
+        );
+        await Helper.setAppleAudioIOMode(AppleAudioIOMode.localAndRemote);
+      } else if (WebRTC.platformIsIOS || WebRTC.platformIsMacOS) {
         await Helper.setAppleAudioConfiguration(
           AppleAudioConfiguration(
             appleAudioCategory: AppleAudioCategory.playback,

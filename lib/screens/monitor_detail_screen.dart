@@ -16,6 +16,7 @@ import '../widgets/cast_target_sheet.dart';
 import '../widgets/live_indicator.dart';
 import '../widgets/sound_level_graph.dart';
 import '../widgets/status_pill.dart';
+import '../widgets/talkback_panel.dart';
 import '../widgets/zoomable_video_view.dart';
 
 final _log = Logger('MonitorDetailScreen');
@@ -86,6 +87,8 @@ class _MonitorDetailScreenState extends State<MonitorDetailScreen> {
             Center(child: StatusPill(alertState: roomAudio.alertState)),
             const SizedBox(height: 16),
             _buildControls(context, connection, listening, muted),
+            const SizedBox(height: 16),
+            TalkbackPanel(roomId: room.id),
           ],
         ),
       ),

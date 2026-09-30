@@ -12,6 +12,7 @@ import 'providers/audio_provider.dart';
 import 'providers/cast_provider.dart';
 import 'providers/room_provider.dart';
 import 'providers/settings_provider.dart';
+import 'providers/talkback_provider.dart';
 import 'services/app_logger.dart';
 import 'services/audio_session_service.dart';
 import 'services/native_log_bridge.dart';
@@ -71,6 +72,14 @@ class BabyMonitarrApp extends StatelessWidget {
           create: (_) => CastProvider(),
           update: (_, connection, cast) {
             final provider = cast ?? CastProvider();
+            provider.bindConnection(connection);
+            return provider;
+          },
+        ),
+        ChangeNotifierProxyProvider<ConnectionProvider, TalkbackProvider>(
+          create: (_) => TalkbackProvider(),
+          update: (_, connection, talkback) {
+            final provider = talkback ?? TalkbackProvider();
             provider.bindConnection(connection);
             return provider;
           },

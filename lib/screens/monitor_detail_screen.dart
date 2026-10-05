@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:logging/logging.dart';
@@ -23,7 +24,10 @@ final _log = Logger('MonitorDetailScreen');
 
 class MonitorDetailScreen extends StatefulWidget {
   final Room room;
-  final RTCVideoRenderer? videoRenderer;
+
+  /// The room's renderer while it has a stream, else null. Listenable so
+  /// the screen follows renderer swaps and session rebuilds.
+  final ValueListenable<RTCVideoRenderer?>? videoRenderer;
 
   const MonitorDetailScreen({
     super.key,
@@ -39,7 +43,32 @@ class _MonitorDetailScreenState extends State<MonitorDetailScreen> {
   bool _scrollLocked = false;
 
   Room get room => widget.room;
-  RTCVideoRenderer? get videoRenderer => widget.videoRenderer;
+  RTCVideoRenderer? get videoRenderer => widget.videoRenderer?.value;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.videoRenderer?.addListener(_onRendererChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant MonitorDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoRenderer != widget.videoRenderer) {
+      oldWidget.videoRenderer?.removeListener(_onRendererChanged);
+      widget.videoRenderer?.addListener(_onRendererChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.videoRenderer?.removeListener(_onRendererChanged);
+    super.dispose();
+  }
+
+  void _onRendererChanged() {
+    if (mounted) setState(() {});
+  }
 
   void _setScrollLock(bool shouldLock) {
     if (!mounted || _scrollLocked == shouldLock) return;

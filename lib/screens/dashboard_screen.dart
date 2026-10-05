@@ -18,6 +18,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../utils/audio_level_scale.dart';
 import '../utils/room_icons.dart';
+import '../utils/video_resume_policy.dart';
 import '../services/background_restriction_service.dart';
 import '../services/pip_service.dart';
 import '../widgets/background_restriction_card.dart';
@@ -28,6 +29,10 @@ import 'monitor_settings_screen.dart';
 import 'settings_screen.dart';
 
 final _log = Logger('DashboardScreen');
+
+/// How long video keeps streaming after the app is backgrounded, so a quick
+/// app switch comes back to a live feed instead of a reload.
+const _videoSuspendGracePeriod = Duration(seconds: 30);
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -47,6 +52,13 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _initialized = false;
   bool _syncInProgress = false;
   bool _resumeRecoveryInProgress = false;
+  bool _wasBackgrounded = false;
+  Timer? _videoSuspendTimer;
+  // Per-room renderer that currently has a stream, so screens pushed from here
+  // (monitor detail) follow renderer swaps and rebuilds instead of holding a
+  // disposed one.
+  final Map<int, ValueNotifier<RTCVideoRenderer?>> _liveRenderers =
+      <int, ValueNotifier<RTCVideoRenderer?>>{};
   bool _restoringActiveListening = false;
   final PipService _pipService = PipService();
   final BackgroundRestrictionService _backgroundRestrictions =
@@ -330,6 +342,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         session.isLoading = false;
         session.isConnected = true;
         session.error = null;
+        _publishRenderer(roomId);
         if (mounted) setState(() {});
       };
 
@@ -426,6 +439,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final session = _videoSessions.remove(roomId);
     if (session == null) return;
     _log.info('Dispose video session room $roomId');
+    _publishRenderer(roomId);
 
     if (notifyServer && connection.isConnected) {
       try {
@@ -454,6 +468,58 @@ class _DashboardScreenState extends State<DashboardScreen>
     for (final roomId in roomIds) {
       unawaited(_disposeVideoSession(roomId, notifyServer: notifyServer));
     }
+  }
+
+  ValueNotifier<RTCVideoRenderer?> _liveRendererFor(int roomId) {
+    final notifier = _liveRenderers.putIfAbsent(
+      roomId,
+      () => ValueNotifier<RTCVideoRenderer?>(null),
+    );
+    _publishRenderer(roomId);
+    return notifier;
+  }
+
+  /// Points [_liveRenderers] for [roomId] at the session's renderer if it has
+  /// a stream, otherwise at null. Must run before a renderer is disposed.
+  void _publishRenderer(int roomId) {
+    final notifier = _liveRenderers[roomId];
+    if (notifier == null) return;
+    final renderer = _videoSessions[roomId]?.renderer;
+    notifier.value = renderer?.srcObject != null ? renderer : null;
+  }
+
+  /// Gives a healthy session a fresh renderer (and so a fresh Android Surface)
+  /// without touching its peer connection, so the stream doesn't restart.
+  Future<void> _refreshRenderer(int roomId) async {
+    final session = _videoSessions[roomId];
+    final stream = session?.renderer.srcObject;
+    if (session == null || stream == null) return;
+
+    final fresh = RTCVideoRenderer();
+    await fresh.initialize();
+    if (!mounted || !identical(_videoSessions[roomId], session)) {
+      await fresh.dispose();
+      return;
+    }
+    fresh.srcObject = stream;
+    final old = session.renderer;
+    session.renderer = fresh;
+    _publishRenderer(roomId);
+    setState(() {});
+
+    // Let widgets rebuild onto the fresh renderer before the old one goes.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      old.srcObject = null;
+      await old.dispose();
+    });
+  }
+
+  void _scheduleVideoSuspend() {
+    if (!_initialized || _videoSuspendTimer != null) return;
+    _videoSuspendTimer = Timer(_videoSuspendGracePeriod, () {
+      _videoSuspendTimer = null;
+      if (mounted) _suspendVideoSessions();
+    });
   }
 
   void _suspendVideoSessions() {
@@ -498,7 +564,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       MaterialPageRoute(
         builder: (_) => MonitorDetailScreen(
           room: room,
-          videoRenderer: _videoSessions[room.id]?.renderer,
+          videoRenderer: _liveRendererFor(room.id),
         ),
       ),
     );
@@ -635,9 +701,12 @@ class _DashboardScreenState extends State<DashboardScreen>
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
-        _suspendVideoSessions();
+        _wasBackgrounded = true;
+        _scheduleVideoSuspend();
         break;
       case AppLifecycleState.resumed:
+        _videoSuspendTimer?.cancel();
+        _videoSuspendTimer = null;
         if (_pipService.isInPipMode.value) {
           _pipService.isPipActive().then((isActive) {
             if (!isActive && mounted) {
@@ -660,29 +729,51 @@ class _DashboardScreenState extends State<DashboardScreen>
     final connection = context.read<ConnectionProvider>();
     if (!connection.isConnected) return;
 
+    final wasBackgrounded = _wasBackgrounded;
+    _wasBackgrounded = false;
     _resumeRecoveryInProgress = true;
     try {
-      // WebRTC stats can't see the failure mode that hits us here: the Android
-      // H.264 decoder keeps producing frames at full rate, but the renderer's
-      // SurfaceTexture/EGL binding goes stale across pause/resume and the OS
-      // discards ~13/15 frames before they reach the screen (renderFps=0-2 vs
-      // outputFps=15). bytesReceived / packetsReceived / framesDecoded all
-      // keep climbing, so any peer-connection-stat-based health check misses
-      // it. Rebuild every active session unconditionally — a fresh renderer
-      // means a fresh Surface.
+      // Only `inactive` (notification shade) leaves the renderer untouched, so
+      // healthy sessions are kept as-is. After a real background the Android
+      // renderer's SurfaceTexture/EGL binding can go stale: the H.264 decoder
+      // keeps producing frames but the OS discards ~13/15 of them before they
+      // reach the screen, and WebRTC stats keep climbing so they can't see it.
+      // A fresh renderer means a fresh Surface, and swapping it doesn't
+      // restart the stream. Only broken sessions get a full rebuild.
       final pipRoomId = _pipService.activePipRoomId;
-      final roomIdsToRebuild = _videoSessions.keys
+      final roomIds = _videoSessions.keys
           .where((roomId) => roomId != pipRoomId)
           .toList(growable: false);
-      if (roomIdsToRebuild.isNotEmpty) {
-        _log.info('Resume: rebuilding video sessions: $roomIdsToRebuild');
-        for (final roomId in roomIdsToRebuild) {
-          if (!mounted) return;
-          // notifyServer: true so the backend tears down the old video stream
-          // before we start a new one — otherwise it accumulates orphaned
-          // sessions. stopVideoStream() is best-effort and already swallows
-          // errors, so a stale SignalR transport won't block the rebuild.
-          await _disposeVideoSession(roomId, notifyServer: true);
+      for (final roomId in roomIds) {
+        if (!mounted) return;
+        final session = _videoSessions[roomId];
+        if (session == null) continue;
+        final action = videoResumeAction(
+          wasBackgrounded: wasBackgrounded,
+          connectionState: session.connectionState,
+          isLoading: session.isLoading,
+          hasStream: session.renderer.srcObject != null,
+          hasError: session.error != null,
+        );
+        switch (action) {
+          case VideoResumeAction.keep:
+            break;
+          case VideoResumeAction.refreshRenderer:
+            _log.info('Resume: refreshing renderer for room $roomId');
+            await _refreshRenderer(roomId);
+            break;
+          case VideoResumeAction.rebuild:
+            _log.info(
+              'Resume: rebuilding unhealthy video session room $roomId '
+              '(state=${session.connectionState?.name}, '
+              'error=${session.error})',
+            );
+            // notifyServer: true so the backend tears down the old video
+            // stream before we start a new one — otherwise it accumulates
+            // orphaned sessions. stopVideoStream() is best-effort and already
+            // swallows errors, so a stale SignalR transport won't block it.
+            await _disposeVideoSession(roomId, notifyServer: true);
+            break;
         }
       }
 
@@ -699,6 +790,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _videoSuspendTimer?.cancel();
     CoachMarkOverlay.dismiss();
     _videoIceSub?.cancel();
     _signalRStateSub?.cancel();
@@ -708,6 +800,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     _pipService.isPreparingForPip.removeListener(_onPipModeChanged);
     _pipService.dispose();
     _disposeAllVideoSessions(notifyServer: false);
+    for (final notifier in _liveRenderers.values) {
+      notifier.dispose();
+    }
     super.dispose();
   }
 
@@ -1326,7 +1421,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 }
 
 class _VideoRoomSession {
-  final RTCVideoRenderer renderer;
+  RTCVideoRenderer renderer;
   RTCPeerConnection? peerConnection;
   final List<RTCIceCandidate> pendingCandidates = <RTCIceCandidate>[];
   bool remoteDescriptionSet = false;

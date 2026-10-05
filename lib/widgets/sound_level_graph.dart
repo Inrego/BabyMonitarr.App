@@ -187,9 +187,12 @@ class SoundLevelGraph extends StatelessWidget {
       return FlSpot(x.clamp(0, 300), e.displayLevel.clamp(0, 100));
     }).toList();
 
+    // No implicit animation: fl_chart lerps spots and bars by index, so once
+    // the 5-minute window is full and the oldest sample drops off, every point
+    // would animate toward its neighbour's value (and whole threshold segments
+    // into the next one), making the peaks bounce on each update.
     return LineChart(
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOut,
+      duration: Duration.zero,
       LineChartData(
         minX: 0,
         maxX: 300,
